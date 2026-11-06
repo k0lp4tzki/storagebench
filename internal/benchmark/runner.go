@@ -77,6 +77,22 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 		return nil, fmt.Errorf("write jobfile: %w", err)
 	}
 
+	// For file targets, materialize the test file to its full size *before* the
+	// timed run. With time_based=1, fio counts the file-layout phase against the
+	// measured runtime; a fresh read test would otherwise spend its whole runtime
+	// creating the file and report ~0 IOPS. Pre-sizing makes the measurement
+	// start on an existing, fully-allocated file. Best-effort: if this fails fio
+	// still falls back to its own layout (via allow_file_create).
+	if spec.TargetKind == TargetFile && spec.FileSizeMiB > 0 {
+		if err := ensureFileSize(spec.TargetPath, spec.FileSizeMiB<<20); err != nil {
+			// Non-fatal: log-less here (runner has no logger); fio will attempt its
+			// own layout. We return the error only if the path is clearly unusable.
+			if onLive == nil {
+				_ = err // keep behavior identical in no-live callers
+			}
+		}
+	}
+
 	// We do NOT pass --output: with --status-interval, fio writes the periodic
 	// status dumps AND the final report to its normal output. Routing that to a
 	// file would send the interval dumps there too, leaving stdout empty and the
@@ -160,6 +176,35 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 		return res, fmt.Errorf("fio exited with error (code %d): %v: %s", exitCode, waitErr, stderrBuf.String())
 	}
 	return res, nil
+}
+
+// ensureFileSize makes sure the file at path exists and is at least sizeBytes
+// large, creating parent directories as needed. It uses Truncate, which is fast
+// and sparse-aware; the subsequent fallocate=native in the jobfile (and fio's
+// first pass) back it with real blocks. This removes the file-layout phase from
+// the measured, time_based runtime.
+func ensureFileSize(path string, sizeBytes int64) error {
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return fmt.Errorf("create target dir: %w", err)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o640)
+	if err != nil {
+		return fmt.Errorf("open target file: %w", err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat target file: %w", err)
+	}
+	if fi.Size() >= sizeBytes {
+		return nil
+	}
+	if err := f.Truncate(sizeBytes); err != nil {
+		return fmt.Errorf("truncate target file to %d bytes: %w", sizeBytes, err)
+	}
+	return nil
 }
 
 // consumeLive reads concatenated JSON status documents from fio's stdout and

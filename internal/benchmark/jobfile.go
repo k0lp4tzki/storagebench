@@ -100,6 +100,11 @@ func BuildJobfile(s *Spec, workDir string) (RenderedJob, error) {
 		// Allow fio to create its own test file if it does not exist yet. This is
 		// required for read-only workloads against a fresh file target.
 		writeKV(&b, "allow_file_create", "1")
+		// Materialize the whole file up front with a fast native fallocate so the
+		// file-layout phase does not steal from the measured, time-based runtime
+		// (otherwise a fresh read test spends its time creating the file and
+		// reports ~0 IOPS). The runner additionally pre-creates the file.
+		writeKV(&b, "fallocate", "native")
 	case TargetDevice:
 		if s.SizeMiB > 0 {
 			writeKV(&b, "size", fmt.Sprintf("%dM", s.SizeMiB))
