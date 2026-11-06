@@ -21,6 +21,7 @@ type Server struct {
 	hub         *Hub
 	store       *store.Store
 	broadcaster *Broadcaster
+	executor    *BatchExecutor
 	log         *slog.Logger
 	uiFS        fs.FS // optional embedded/served UI assets; may be nil
 }
@@ -28,7 +29,15 @@ type Server struct {
 // NewServer constructs the controller server. broadcaster may be nil (the UI
 // live stream is then unavailable but the rest of the API still works).
 func NewServer(cfg config.Controller, hub *Hub, st *store.Store, broadcaster *Broadcaster, log *slog.Logger, uiFS fs.FS) *Server {
-	return &Server{cfg: cfg, hub: hub, store: st, broadcaster: broadcaster, log: log, uiFS: uiFS}
+	return &Server{
+		cfg:         cfg,
+		hub:         hub,
+		store:       st,
+		broadcaster: broadcaster,
+		executor:    NewBatchExecutor(hub, st, broadcaster, log),
+		log:         log,
+		uiFS:        uiFS,
+	}
 }
 
 // Handler builds the HTTP routes.
@@ -50,6 +59,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/nodes", s.handleNodes)
 	mux.HandleFunc("/api/runs", s.handleRuns)
 	mux.HandleFunc("/api/runs/", s.handleRunDetail) // /api/runs/{id}[/metrics|/events|/stop|/abort]
+
+	// Profiles (named collections of test steps) and batch execution.
+	mux.HandleFunc("/api/profiles", s.handleProfiles)   // GET list, POST create
+	mux.HandleFunc("/api/profiles/", s.handleProfileByID) // GET/PUT/DELETE /{id}
+	mux.HandleFunc("/api/batches", s.handleBatches)     // GET list, POST start
+	mux.HandleFunc("/api/batches/", s.handleBatchByID)  // GET /{id}
 
 	// Static UI with SPA fallback, if an embedded/served bundle is provided.
 	if s.uiFS != nil {

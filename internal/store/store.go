@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,10 +64,32 @@ func Open(path string) (*Store, error) {
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// migrate creates the schema if it does not exist. It is idempotent.
+// migrate creates the schema if it does not exist and applies lightweight
+// column additions for existing databases. It is idempotent.
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(schemaSQL)
-	return err
+	if _, err := s.db.Exec(schemaSQL); err != nil {
+		return err
+	}
+	// Additive migrations for databases created before these columns existed.
+	// ALTER TABLE ... ADD COLUMN errors if the column exists; we ignore that.
+	addColumns := []string{
+		`ALTER TABLE test_run ADD COLUMN batch_id TEXT`,
+		`ALTER TABLE test_run ADD COLUMN batch_step INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range addColumns {
+		if _, err := s.db.Exec(stmt); err != nil {
+			// "duplicate column name" is expected and fine; anything else is not.
+			if !isDuplicateColumnErr(err) {
+				return fmt.Errorf("migrate %q: %w", stmt, err)
+			}
+		}
+	}
+	return nil
+}
+
+// isDuplicateColumnErr reports whether err is SQLite's "duplicate column name".
+func isDuplicateColumnErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }
 
 // --- Node registration ---

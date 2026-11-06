@@ -48,10 +48,10 @@ build-controller:
 		go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/storagebench-controller ./cmd/controller
 
 ## web-build: build the frontend bundle into cmd/controller/webdist.
-## Uses `npm ci` when a lockfile exists (reproducible), otherwise `npm install`
-## which also generates package-lock.json.
+## Uses `npm install` so an updated package.json always resolves (and refreshes
+## package-lock.json, which CI commits back for reproducibility).
 web-build:
-	cd web && { [ -f package-lock.json ] && npm ci || npm install; } && npm run build
+	cd web && npm install && npm run build
 
 ## build-controller-embed: controller with the built frontend embedded.
 ## Run `make web-build` first so cmd/controller/webdist holds the real bundle.

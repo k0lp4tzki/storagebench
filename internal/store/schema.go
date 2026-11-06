@@ -16,25 +16,49 @@ CREATE TABLE IF NOT EXISTS node (
 	last_seen     TEXT NOT NULL DEFAULT ''
 );
 
--- A reusable test profile (resolved parameters stored as JSON).
+-- A reusable test profile: a named, ordered collection of test steps. Each step
+-- is a benchmark spec (without a bound target host); steps are stored as a JSON
+-- array so the profile is a single, versionable document.
 CREATE TABLE IF NOT EXISTS test_profile (
-	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	id          TEXT PRIMARY KEY,               -- profile id
 	name        TEXT NOT NULL,
-	params      TEXT NOT NULL,                  -- JSON benchmark spec
-	created_at  TEXT NOT NULL
+	description TEXT NOT NULL DEFAULT '',
+	steps       TEXT NOT NULL DEFAULT '[]',     -- JSON array of ProfileStep
+	created_at  TEXT NOT NULL DEFAULT '',
+	updated_at  TEXT NOT NULL DEFAULT ''
 );
 
--- A test run is one execution, possibly across several nodes.
+-- A batch is one execution of a profile against a set of hosts. It groups the
+-- individual runs (one run per profile step) so results can be viewed together.
+CREATE TABLE IF NOT EXISTS test_batch (
+	id           TEXT PRIMARY KEY,              -- batch id
+	profile_id   TEXT,
+	name         TEXT NOT NULL DEFAULT '',
+	status       TEXT NOT NULL DEFAULT 'created',-- created|running|completed|failed|aborted
+	agent_ids    TEXT NOT NULL DEFAULT '[]',    -- JSON array of target agent ids
+	total_steps  INTEGER NOT NULL DEFAULT 0,
+	step_index   INTEGER NOT NULL DEFAULT 0,    -- 0-based index of the active step
+	started_at   TEXT NOT NULL DEFAULT '',
+	ended_at     TEXT NOT NULL DEFAULT '',
+	FOREIGN KEY (profile_id) REFERENCES test_profile(id) ON DELETE SET NULL
+);
+
+-- A test run is one execution, possibly across several nodes. A run may belong to
+-- a batch (one run per profile step) via batch_id.
 CREATE TABLE IF NOT EXISTS test_run (
 	id               TEXT PRIMARY KEY,          -- run_id (UUID-like)
-	profile_id       INTEGER,
+	profile_id       TEXT,
+	batch_id         TEXT,
+	batch_step       INTEGER NOT NULL DEFAULT 0,-- 0-based step index within the batch
 	name             TEXT NOT NULL DEFAULT '',
 	status           TEXT NOT NULL DEFAULT 'created',
 	resolved_config  TEXT NOT NULL DEFAULT '{}',-- JSON: exact config used
 	started_at       TEXT NOT NULL DEFAULT '',
 	ended_at         TEXT NOT NULL DEFAULT '',
-	FOREIGN KEY (profile_id) REFERENCES test_profile(id) ON DELETE SET NULL
+	FOREIGN KEY (profile_id) REFERENCES test_profile(id) ON DELETE SET NULL,
+	FOREIGN KEY (batch_id) REFERENCES test_batch(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS idx_run_batch ON test_run(batch_id, batch_step);
 
 -- Per-node participation in a run. Freezes the node's system snapshot so results
 -- remain reproducible even if the node changes later.

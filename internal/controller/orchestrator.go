@@ -39,19 +39,8 @@ func (h *Hub) StartRun(st RunStore, req StartRunRequest) (string, error) {
 	if len(req.Specs) == 0 {
 		return "", fmt.Errorf("no target agents specified")
 	}
-
-	// Validate specs and confirm all agents are connected before changing state.
-	for agentID, spec := range req.Specs {
-		if _, ok := h.get(agentID); !ok {
-			return "", fmt.Errorf("agent %q is not connected", agentID)
-		}
-		s := spec
-		if err := s.Validate(); err != nil {
-			return "", fmt.Errorf("invalid spec for agent %q: %w", agentID, err)
-		}
-		// Refuse if the agent already has a running test would be ideal, but the
-		// agent enforces one-active-test and will reject start; we surface that
-		// asynchronously via test_state.
+	if err := h.validateSpecs(req.Specs); err != nil {
+		return "", err
 	}
 
 	runID := newRunID()
@@ -65,14 +54,39 @@ func (h *Hub) StartRun(st RunStore, req StartRunRequest) (string, error) {
 		return "", fmt.Errorf("create run: %w", err)
 	}
 
+	if err := h.assignAndStart(st, runID, req.Specs, req.AuthorizationSeconds); err != nil {
+		return runID, err
+	}
+	return runID, nil
+}
+
+// validateSpecs confirms every target agent is connected and every spec is valid
+// before any state changes.
+func (h *Hub) validateSpecs(specs map[string]benchmark.Spec) error {
+	for agentID, spec := range specs {
+		if _, ok := h.get(agentID); !ok {
+			return fmt.Errorf("agent %q is not connected", agentID)
+		}
+		s := spec
+		if err := s.Validate(); err != nil {
+			return fmt.Errorf("invalid spec for agent %q: %w", agentID, err)
+		}
+	}
+	return nil
+}
+
+// assignAndStart assigns the per-agent specs for an already-created run, then
+// starts them. The run row (plain or batch) must already exist. It sets the run
+// status to "running" on success or "failed" on error.
+func (h *Hub) assignAndStart(st RunStore, runID string, specs map[string]benchmark.Spec, authSeconds int) error {
 	// Determine authorization deadline.
 	maxRuntime := 0
-	for _, spec := range req.Specs {
+	for _, spec := range specs {
 		if spec.RuntimeSeconds > maxRuntime {
 			maxRuntime = spec.RuntimeSeconds
 		}
 	}
-	authSecs := req.AuthorizationSeconds
+	authSecs := authSeconds
 	if authSecs <= 0 {
 		authSecs = maxRuntime + 300 // runtime + 5 min margin
 	}
@@ -80,15 +94,15 @@ func (h *Hub) StartRun(st RunStore, req StartRunRequest) (string, error) {
 
 	// Assign to each agent, then start. Assign first so an agent has the job
 	// persisted before being told to start.
-	for agentID, spec := range req.Specs {
+	for agentID, spec := range specs {
 		if err := st.AddRunNode(runID, agentID); err != nil {
 			_ = st.SetRunStatus(runID, "failed")
-			return "", fmt.Errorf("add run node %q: %w", agentID, err)
+			return fmt.Errorf("add run node %q: %w", agentID, err)
 		}
 		specRaw, err := json.Marshal(spec)
 		if err != nil {
 			_ = st.SetRunStatus(runID, "failed")
-			return "", fmt.Errorf("marshal spec for %q: %w", agentID, err)
+			return fmt.Errorf("marshal spec for %q: %w", agentID, err)
 		}
 		assign := protocol.AssignTest{
 			RunID:                runID,
@@ -97,22 +111,21 @@ func (h *Hub) StartRun(st RunStore, req StartRunRequest) (string, error) {
 		}
 		if err := h.SendControl(agentID, protocol.TypeAssignTest, assign); err != nil {
 			_ = st.SetRunStatus(runID, "failed")
-			return "", fmt.Errorf("assign to %q: %w", agentID, err)
+			return fmt.Errorf("assign to %q: %w", agentID, err)
 		}
 	}
 
 	// Start each agent. A short settling delay lets assignments land first.
 	time.Sleep(100 * time.Millisecond)
-	for agentID := range req.Specs {
+	for agentID := range specs {
 		if err := h.SendControl(agentID, protocol.TypeStart, protocol.Start{RunID: runID}); err != nil {
-			// Best-effort: mark failed but report which agent.
 			_ = st.SetRunStatus(runID, "failed")
-			return runID, fmt.Errorf("start on %q: %w", agentID, err)
+			return fmt.Errorf("start on %q: %w", agentID, err)
 		}
 	}
 
 	_ = st.SetRunStatus(runID, "running")
-	return runID, nil
+	return nil
 }
 
 // StopRun sends a graceful stop to all agents participating in a run.

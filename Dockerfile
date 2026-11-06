@@ -14,8 +14,8 @@ FROM node:20-bookworm-slim AS web
 WORKDIR /src/web
 # Copy manifests first for better layer caching.
 COPY web/package.json web/package-lock.json* ./
-# Use npm ci when a lockfile is present (reproducible), else npm install.
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# npm install resolves even when package.json changed vs. the committed lockfile.
+RUN npm install
 # Copy the rest of the frontend and build. Vite outputs to ../cmd/controller/webdist.
 COPY web/ ./
 # The build output dir lives outside web/, so make sure it exists.

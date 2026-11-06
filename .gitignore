@@ -41,3 +41,4 @@
 *.token
 secrets.*
 config.local.*
+.env

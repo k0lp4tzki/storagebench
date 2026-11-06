@@ -20,7 +20,17 @@ const (
 	UITypeEvent     = "event"     // discrete event
 	UITypeTestState = "testState" // run lifecycle transition
 	UITypeAgents    = "agents"    // periodic agent status snapshot
+	UITypeBatch     = "batch"     // batch progress update
 )
+
+// UIBatch is the browser-facing batch-progress payload.
+type UIBatch struct {
+	BatchID    string `json:"batchId"`
+	Status     string `json:"status"`
+	StepIndex  int    `json:"stepIndex"`
+	TotalSteps int    `json:"totalSteps"`
+	RunID      string `json:"runId,omitempty"`
+}
 
 // UIMetrics is the live metric payload sent to browsers. It mirrors the ingested
 // batch but tags the originating agent so the UI can place it per-server.

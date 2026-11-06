@@ -15,10 +15,14 @@ services:
       dockerfile: Dockerfile
     image: storagebench-controller:latest
     container_name: storagebench-controller
-    # Bind only to localhost on the host by default. Change to "8080:8080" to
-    # expose it on all host interfaces (e.g. to reach it from other machines).
+    # Port binding is configurable so a git pull does not reset your choice.
+    # Default binds to localhost only. To reach the controller from other
+    # machines, set in a .env file next to this compose file:
+    #   SB_BIND=0.0.0.0
+    #   SB_PORT=8080
+    # (SB_BIND=0.0.0.0 exposes it on all host interfaces.)
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${SB_BIND:-127.0.0.1}:${SB_PORT:-8080}:8080"
     environment:
       # Pre-shared token agents must present. Provided from the host environment
       # so it is never baked into the image. Falls back to a dev value if unset.
