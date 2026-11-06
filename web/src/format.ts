@@ -28,3 +28,11 @@ export function fmtTime(iso: string | undefined): string {
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleString("de-DE");
 }
+
+// secondsFromStart converts an array of wall-clock-millis timestamps into
+// seconds elapsed from the first sample, for use as a chart x-axis.
+export function secondsFromStart(tsMillis: number[]): number[] {
+  if (tsMillis.length === 0) return [];
+  const t0 = tsMillis[0];
+  return tsMillis.map((t) => Math.max(0, Math.round((t - t0) / 1000)));
+}

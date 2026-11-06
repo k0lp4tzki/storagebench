@@ -1,73 +1,93 @@
 import { useLive } from "../state/LiveProvider";
-import { TimeChart } from "../components/TimeChart";
-import { fmtBW, fmtIOPS, fmtLatUs } from "../format";
+import { Chart } from "../components/Chart";
+import { RunStatusBadge } from "../components/StatusBadge";
+import { fmtBW, fmtIOPS, fmtLatUs, secondsFromStart } from "../format";
 
 export function LiveView() {
   const { agents, liveMetrics, testStates } = useLive();
 
+  const anyActive = agents.some((a) => {
+    const s = testStates[a.agentId];
+    return s && ["running", "starting", "assigned"].includes(s.phase);
+  });
+
   return (
     <div>
-      <h1>Live-Ansicht</h1>
-      <section className="grid3">
+      {!anyActive && (
+        <div className="card" style={{ marginBottom: 18 }}>
+          <div className="muted">
+            Kein aktiver Test. Starte ein Profil unter „Profile", um Live-Daten zu
+            sehen.
+          </div>
+        </div>
+      )}
+
+      <div className="grid cols-3">
         {agents.length === 0 && (
-          <div className="card muted">Keine Agenten verbunden.</div>
+          <div className="card empty">Keine Agenten verbunden.</div>
         )}
         {agents.map((a) => {
           const samples = liveMetrics[a.agentId] ?? [];
           const last = samples[samples.length - 1];
           const ts = testStates[a.agentId];
-          const iopsRead = samples.map((s) => s.ior ?? 0);
-          const iopsWrite = samples.map((s) => s.iow ?? 0);
-          const latMean = samples.map((s) => s.lm ?? 0);
-          const latP99 = samples.map((s) => s.l99 ?? 0);
+          const x = secondsFromStart(samples.map((s) => s.t));
 
           return (
             <div className="card" key={a.agentId}>
-              <div className="host">{a.system.hostname}</div>
-              <div className="sub">
-                {ts ? `${ts.phase} · ${ts.runId.slice(0, 8)}` : "idle"}
+              <div className="toolbar" style={{ marginBottom: 6 }}>
+                <div style={{ fontWeight: 650 }}>{a.system.hostname}</div>
+                <div className="spacer" />
+                {ts ? <RunStatusBadge status={ts.phase} /> : <span className="badge">idle</span>}
               </div>
 
-              <div className="metrics-row">
-                <div className="metric">
-                  <div className="label">IOPS R</div>
-                  <div className="value">{fmtIOPS(last?.ior)}</div>
+              <div className="row" style={{ marginBottom: 10 }}>
+                <div className="stat">
+                  <div className="label">IOPS R/W</div>
+                  <div style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>
+                    {fmtIOPS(last?.ior)} / {fmtIOPS(last?.iow)}
+                  </div>
                 </div>
-                <div className="metric">
-                  <div className="label">IOPS W</div>
-                  <div className="value">{fmtIOPS(last?.iow)}</div>
-                </div>
-                <div className="metric">
-                  <div className="label">p99</div>
-                  <div className="value">{fmtLatUs(last?.l99)}</div>
+                <div className="stat">
+                  <div className="label">Latenz p99</div>
+                  <div style={{ fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>
+                    {fmtLatUs(last?.l99)}
+                  </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: 14 }}>
-                <TimeChart
-                  series={[
-                    { values: iopsRead, color: "var(--read)", label: "IOPS Read" },
-                    { values: iopsWrite, color: "var(--write)", label: "IOPS Write" },
-                  ]}
-                />
+              <div className="faint" style={{ fontSize: 11, margin: "4px 0 2px" }}>
+                IOPS
               </div>
-              <div style={{ marginTop: 14 }}>
-                <TimeChart
-                  unit="µs"
-                  series={[
-                    { values: latMean, color: "var(--accent)", label: "Latenz Ø" },
-                    { values: latP99, color: "var(--err)", label: "Latenz p99" },
-                  ]}
-                />
-              </div>
+              <Chart
+                x={x}
+                height={150}
+                yFormat={(v) => fmtIOPS(v)}
+                series={[
+                  { label: "Read", data: samples.map((s) => s.ior ?? 0), color: "var(--read)" },
+                  { label: "Write", data: samples.map((s) => s.iow ?? 0), color: "var(--write)" },
+                ]}
+              />
 
-              <div className="sub" style={{ marginTop: 10 }}>
-                Bandbreite: {fmtBW(last?.bwr)} lesen / {fmtBW(last?.bww)} schreiben
+              <div className="faint" style={{ fontSize: 11, margin: "10px 0 2px" }}>
+                Latenz (µs)
+              </div>
+              <Chart
+                x={x}
+                height={150}
+                yFormat={(v) => fmtLatUs(v)}
+                series={[
+                  { label: "Ø", data: samples.map((s) => s.lm ?? 0), color: "var(--accent)" },
+                  { label: "p99", data: samples.map((s) => s.l99 ?? 0), color: "var(--err)" },
+                ]}
+              />
+
+              <div className="faint" style={{ fontSize: 12, marginTop: 10 }}>
+                Durchsatz: {fmtBW(last?.bwr)} lesen · {fmtBW(last?.bww)} schreiben
               </div>
             </div>
           );
         })}
-      </section>
+      </div>
     </div>
   );
 }

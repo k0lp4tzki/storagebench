@@ -7,8 +7,9 @@ import type {
   RunDetail,
   StartRunRequest,
 } from "../api/types";
-import { TimeChart } from "../components/TimeChart";
-import { fmtBW, fmtIOPS, fmtLatUs, fmtTime } from "../format";
+import { Chart } from "../components/Chart";
+import { RunStatusBadge } from "../components/StatusBadge";
+import { fmtBW, fmtIOPS, fmtLatUs, fmtTime, secondsFromStart } from "../format";
 
 const ACTIVE = new Set(["running", "assigned", "starting", "pending"]);
 
@@ -40,7 +41,6 @@ export function RunDetailPage() {
     load();
   }, [load]);
 
-  // Poll while the run is active so live persisted data refreshes.
   useEffect(() => {
     if (!run || !ACTIVE.has(run.status)) return;
     const t = setInterval(load, 3000);
@@ -51,7 +51,8 @@ export function RunDetailPage() {
     setBusy(true);
     setErr(null);
     try {
-      abort ? await api.abortRun(id) : await api.stopRun(id);
+      if (abort) await api.abortRun(id);
+      else await api.stopRun(id);
       await load();
     } catch (ex) {
       setErr(String(ex));
@@ -60,7 +61,6 @@ export function RunDetailPage() {
     }
   }
 
-  // Restart re-runs the same frozen config as a new run and navigates to it.
   async function doRestart() {
     if (!run?.resolvedConfig) return;
     setBusy(true);
@@ -79,59 +79,61 @@ export function RunDetailPage() {
   }
 
   if (err && !run) return <div className="error">{err}</div>;
-  if (!run) return <div className="muted">Lädt…</div>;
+  if (!run) return <div className="card empty">Lädt…</div>;
 
   const active = ACTIVE.has(run.status);
-  // Go serializes empty slices as null; guard every list access.
   const nodes = run.nodes ?? [];
   const eventList = events ?? [];
 
   return (
     <div>
-      <h1>{run.name || run.id}</h1>
-      <div className="inline" style={{ marginBottom: 16 }}>
-        <span className="badge">Status: {run.status}</span>
-        <span className="badge">Start: {fmtTime(run.startedAt)}</span>
-        <span className="badge">Ende: {fmtTime(run.endedAt)}</span>
-        {active && (
-          <>
-            <button
-              className="btn secondary"
-              disabled={busy}
-              onClick={() => doStop(false)}
-            >
-              Stop
-            </button>
-            <button
-              className="btn danger"
-              disabled={busy}
-              onClick={() => doStop(true)}
-            >
-              Abbrechen
-            </button>
-          </>
-        )}
-        {!active && run.resolvedConfig && (
-          <button className="btn" disabled={busy} onClick={doRestart}>
-            Neu starten
-          </button>
-        )}
+      <div className="section-head">
+        <div>
+          <h2 style={{ marginBottom: 6 }}>{run.name || run.id}</h2>
+          <div className="toolbar" style={{ gap: 8 }}>
+            <RunStatusBadge status={run.status} />
+            <span className="faint" style={{ fontSize: 12 }}>
+              {fmtTime(run.startedAt)}
+              {run.endedAt ? ` – ${fmtTime(run.endedAt)}` : ""}
+            </span>
+          </div>
+        </div>
+        <div className="toolbar">
+          {active ? (
+            <>
+              <button className="btn secondary" disabled={busy} onClick={() => doStop(false)}>
+                Stop
+              </button>
+              <button className="btn danger" disabled={busy} onClick={() => doStop(true)}>
+                Abbrechen
+              </button>
+            </>
+          ) : (
+            run.resolvedConfig && (
+              <button className="btn" disabled={busy} onClick={doRestart}>
+                ▶ Neu starten
+              </button>
+            )
+          )}
+        </div>
       </div>
-      {err && <div className="error">{err}</div>}
 
-      <section style={{ marginBottom: 24 }}>
+      {err && <div className="error" style={{ marginBottom: 14 }}>{err}</div>}
+
+      {/* Comparison */}
+      <section className="section">
         <h2>Vergleich</h2>
-        <div className="card">
+        <div className="card pad-0">
           <table>
             <thead>
               <tr>
-                <th>Server</th>
+                <th>Host</th>
                 <th>Phase</th>
                 <th>IOPS R</th>
                 <th>IOPS W</th>
                 <th>BW R</th>
                 <th>BW W</th>
-                <th>Latenz Ø</th>
+                <th>Lat Ø</th>
                 <th>p95</th>
                 <th>p99</th>
               </tr>
@@ -141,8 +143,10 @@ export function RunDetailPage() {
                 const f = n.fioSummary;
                 return (
                   <tr key={n.agentId}>
-                    <td>{n.hostname}</td>
-                    <td>{n.phase}</td>
+                    <td style={{ fontWeight: 550 }}>{n.hostname}</td>
+                    <td>
+                      <RunStatusBadge status={n.phase} />
+                    </td>
                     <td>{fmtIOPS(f?.iopsRead)}</td>
                     <td>{fmtIOPS(f?.iopsWrite)}</td>
                     <td>{fmtBW(f?.bwReadKBs)}</td>
@@ -158,61 +162,53 @@ export function RunDetailPage() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 24 }}>
+      {/* Time series */}
+      <section className="section">
         <h2>Zeitverlauf</h2>
-        <div className="grid3">
+        <div className="grid cols-2">
           {nodes.map((n) => {
             const s = metrics[n.agentId] ?? [];
+            const x = secondsFromStart(s.map((v) => v.t));
             return (
               <div className="card" key={n.agentId}>
-                <div className="host">{n.hostname}</div>
-                <div style={{ marginTop: 12 }}>
-                  <TimeChart
-                    series={[
-                      {
-                        values: s.map((x) => x.ior ?? 0),
-                        color: "var(--read)",
-                        label: "IOPS Read",
-                      },
-                      {
-                        values: s.map((x) => x.iow ?? 0),
-                        color: "var(--write)",
-                        label: "IOPS Write",
-                      },
-                    ]}
-                  />
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>{n.hostname}</div>
+                <div className="faint" style={{ fontSize: 11 }}>IOPS</div>
+                <Chart
+                  x={x}
+                  height={160}
+                  yFormat={(v) => fmtIOPS(v)}
+                  series={[
+                    { label: "Read", data: s.map((v) => v.ior ?? 0), color: "var(--read)" },
+                    { label: "Write", data: s.map((v) => v.iow ?? 0), color: "var(--write)" },
+                  ]}
+                />
+                <div className="faint" style={{ fontSize: 11, marginTop: 8 }}>
+                  Latenz (µs)
                 </div>
-                <div style={{ marginTop: 12 }}>
-                  <TimeChart
-                    unit="µs"
-                    series={[
-                      {
-                        values: s.map((x) => x.lm ?? 0),
-                        color: "var(--accent)",
-                        label: "Latenz Ø",
-                      },
-                      {
-                        values: s.map((x) => x.l99 ?? 0),
-                        color: "var(--err)",
-                        label: "Latenz p99",
-                      },
-                    ]}
-                  />
-                </div>
+                <Chart
+                  x={x}
+                  height={160}
+                  yFormat={(v) => fmtLatUs(v)}
+                  series={[
+                    { label: "Ø", data: s.map((v) => v.lm ?? 0), color: "var(--accent)" },
+                    { label: "p99", data: s.map((v) => v.l99 ?? 0), color: "var(--err)" },
+                  ]}
+                />
               </div>
             );
           })}
         </div>
       </section>
 
-      <section>
+      {/* Events */}
+      <section className="section">
         <h2>Ereignisse</h2>
-        <div className="card">
+        <div className="card pad-0">
           <table>
             <thead>
               <tr>
                 <th>Zeit</th>
-                <th>Server</th>
+                <th>Host</th>
                 <th>Schwere</th>
                 <th>Quelle</th>
                 <th>Nachricht</th>
@@ -221,17 +217,27 @@ export function RunDetailPage() {
             <tbody>
               {eventList.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="muted">
+                  <td colSpan={5} className="empty">
                     Keine Ereignisse.
                   </td>
                 </tr>
               )}
               {eventList.map((e, i) => (
                 <tr key={i}>
-                  <td>{new Date(e.tsWallMilli).toLocaleTimeString("de-DE")}</td>
+                  <td className="muted">
+                    {new Date(e.tsWallMilli).toLocaleTimeString("de-DE")}
+                  </td>
                   <td>{e.agentId}</td>
-                  <td>{e.severity}</td>
-                  <td>{e.source}</td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        e.severity === "error" ? "err" : e.severity === "warn" ? "warn" : ""
+                      }`}
+                    >
+                      {e.severity}
+                    </span>
+                  </td>
+                  <td className="muted">{e.source}</td>
                   <td>{e.message}</td>
                 </tr>
               ))}

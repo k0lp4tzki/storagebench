@@ -143,10 +143,65 @@ export interface StartRunRequest {
   authorizationSeconds?: number;
 }
 
+// --- Profiles & batches ---
+
+export interface ProfileStep {
+  spec: Spec;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  description: string;
+  steps: ProfileStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Batch {
+  id: string;
+  profileId: string;
+  name: string;
+  status: string;
+  agentIds: string[];
+  totalSteps: number;
+  stepIndex: number;
+  startedAt: string;
+  endedAt: string;
+}
+
+export interface BatchRunEntry {
+  runId: string;
+  step: number;
+  name: string;
+  status: string;
+  startedAt: string;
+  endedAt: string;
+}
+
+export interface BatchDetail extends Batch {
+  profileName: string;
+  runs: BatchRunEntry[];
+}
+
+export interface StartBatchRequest {
+  profileId: string;
+  agentIds: string[];
+  name?: string;
+}
+
 // UI WebSocket message envelope.
 export interface UIMessage {
-  type: "metrics" | "event" | "testState" | "agents";
+  type: "metrics" | "event" | "testState" | "agents" | "batch";
   payload: unknown;
+}
+
+export interface UIBatchPayload {
+  batchId: string;
+  status: string;
+  stepIndex: number;
+  totalSteps: number;
+  runId?: string;
 }
 
 export interface UIMetricsPayload {

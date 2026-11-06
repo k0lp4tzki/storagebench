@@ -15,6 +15,7 @@ import { LiveSocket } from "../api/liveSocket";
 import type {
   AgentView,
   MetricSample,
+  UIBatchPayload,
   UIMessage,
   UIMetricsPayload,
   UITestStatePayload,
@@ -29,6 +30,8 @@ interface LiveState {
   liveMetrics: Record<string, MetricSample[]>;
   // testStates maps agentId -> latest phase for the active run.
   testStates: Record<string, { runId: string; phase: string }>;
+  // batchProgress maps batchId -> latest progress.
+  batchProgress: Record<string, UIBatchPayload>;
   connected: boolean;
 }
 
@@ -41,6 +44,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   );
   const [testStates, setTestStates] = useState<
     Record<string, { runId: string; phase: string }>
+  >({});
+  const [batchProgress, setBatchProgress] = useState<
+    Record<string, UIBatchPayload>
   >({});
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<LiveSocket | null>(null);
@@ -77,6 +83,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           }));
           break;
         }
+        case "batch": {
+          const p = msg.payload as UIBatchPayload;
+          setBatchProgress((prev) => ({ ...prev, [p.batchId]: p }));
+          break;
+        }
         default:
           break;
       }
@@ -90,8 +101,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<LiveState>(
-    () => ({ agents, liveMetrics, testStates, connected }),
-    [agents, liveMetrics, testStates, connected],
+    () => ({ agents, liveMetrics, testStates, batchProgress, connected }),
+    [agents, liveMetrics, testStates, batchProgress, connected],
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

@@ -3,9 +3,13 @@
 
 import type {
   AgentView,
+  Batch,
+  BatchDetail,
   EventRecord,
+  Profile,
   RunDetail,
   RunSummary,
+  StartBatchRequest,
   StartRunRequest,
   MetricSample,
 } from "./types";
@@ -18,18 +22,31 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function postJSON<T>(path: string, body: unknown): Promise<T> {
+async function sendJSON<T>(
+  method: "POST" | "PUT" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const res = await fetch(path, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `${path}: HTTP ${res.status}`);
+    let msg = text;
+    try {
+      msg = JSON.parse(text).error ?? text;
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(msg || `${path}: HTTP ${res.status}`);
   }
   return (await res.json()) as T;
 }
+
+const postJSON = <T,>(path: string, body: unknown) =>
+  sendJSON<T>("POST", path, body);
 
 export const api = {
   agents: () => getJSON<AgentView[]>("/api/agents"),
@@ -53,4 +70,25 @@ export const api = {
       `/api/runs/${encodeURIComponent(id)}/abort`,
       {},
     ),
+
+  // Profiles
+  profiles: () => getJSON<Profile[]>("/api/profiles"),
+  profile: (id: string) =>
+    getJSON<Profile>(`/api/profiles/${encodeURIComponent(id)}`),
+  createProfile: (p: Omit<Profile, "id" | "createdAt" | "updatedAt">) =>
+    postJSON<Profile>("/api/profiles", p),
+  updateProfile: (id: string, p: Omit<Profile, "createdAt" | "updatedAt">) =>
+    sendJSON<Profile>("PUT", `/api/profiles/${encodeURIComponent(id)}`, p),
+  deleteProfile: (id: string) =>
+    sendJSON<{ deleted: string }>(
+      "DELETE",
+      `/api/profiles/${encodeURIComponent(id)}`,
+    ),
+
+  // Batches
+  batches: () => getJSON<Batch[]>("/api/batches"),
+  batch: (id: string) =>
+    getJSON<BatchDetail>(`/api/batches/${encodeURIComponent(id)}`),
+  startBatch: (req: StartBatchRequest) =>
+    postJSON<{ batchId: string }>("/api/batches", req),
 };
