@@ -1,0 +1,54 @@
+# systemd unit for the storagebench agent.
+#
+# PRIVILEGE MODEL (important):
+#   The agent runs UNPRIVILEGED. It samples /proc and runs fio against devices
+#   it is explicitly allowed to use. It must NOT run as root.
+#
+#   Privileged actions required by later phases (fault injection via tc/iptables,
+#   dmsetup, multipath, iscsiadm, or fio against raw block devices) are performed
+#   by a SEPARATE privileged "privilege-broker" service with a strict allowlist.
+#   The agent talks to that broker over a local socket. This keeps the large,
+#   network-facing agent out of root and confines danger to a small, auditable
+#   component. The broker unit ships in a later phase.
+#
+# Install:
+#   sudo useradd --system --home /var/lib/storagebench --shell /usr/sbin/nologin storagebench
+#   # To let the agent run fio on specific test devices without full root, add the
+#   # service user to the group that owns those test devices, or expose them via
+#   # the privilege-broker. Do NOT grant blanket disk access.
+#   sudo mkdir -p /var/lib/storagebench /etc/storagebench
+#   sudo chown -R storagebench:storagebench /var/lib/storagebench
+#   sudo cp bin/storagebench-agent /usr/local/bin/
+#   sudo cp configs/agent.example.json /etc/storagebench/agent.json   # then edit
+#   echo 'STORAGEBENCH_AGENT_TOKEN=change-me' | sudo tee /etc/storagebench/agent.env
+#   sudo chmod 600 /etc/storagebench/agent.env
+#   sudo cp deploy/systemd/storagebench-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now storagebench-agent
+
+[Unit]
+Description=storagebench agent (benchmark + telemetry node)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=storagebench
+Group=storagebench
+EnvironmentFile=/etc/storagebench/agent.env
+ExecStart=/usr/local/bin/storagebench-agent --config /etc/storagebench/agent.json
+Restart=on-failure
+RestartSec=3
+
+# Hardening: keep the agent confined. These can be relaxed per-site if fio needs
+# access to specific paths; prefer the privilege-broker over loosening these.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/storagebench
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

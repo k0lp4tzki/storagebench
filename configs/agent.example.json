@@ -1,0 +1,13 @@
+{
+  "controllerUrl": "wss://controller.internal.example:8443/ws/agent",
+  "agentId": "",
+  "spoolDir": "/var/lib/storagebench/agent-spool",
+  "sampleIntervalMs": 1000,
+  "reconnectMinMs": 1000,
+  "reconnectMaxMs": 30000,
+  "logLevel": "info",
+  "__comment_insecure": "Set insecureSkipVerify to true ONLY for self-signed certs in an isolated test network.",
+  "insecureSkipVerify": false,
+  "__comment_token": "Do NOT put the token here in production. Set STORAGEBENCH_AGENT_TOKEN in the systemd unit's environment file instead.",
+  "token": ""
+}

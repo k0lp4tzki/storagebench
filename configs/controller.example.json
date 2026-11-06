@@ -1,0 +1,10 @@
+{
+  "listenAddr": "0.0.0.0:8443",
+  "dbPath": "/var/lib/storagebench/storagebench.db",
+  "heartbeatSeconds": 5,
+  "logLevel": "info",
+  "tlsCertFile": "/etc/storagebench/tls/controller.crt",
+  "tlsKeyFile": "/etc/storagebench/tls/controller.key",
+  "__comment_token": "Do NOT put the token here in production. Set STORAGEBENCH_AGENT_TOKEN in the systemd unit's environment file instead.",
+  "agentToken": ""
+}

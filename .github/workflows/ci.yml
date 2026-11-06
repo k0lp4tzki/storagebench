@@ -1,0 +1,59 @@
+# Continuous integration: builds the Linux binaries and runs checks.
+#
+# The platform targets Linux, and this runner is Linux, so a green run here means
+# the code compiles and vets cleanly for the deployment target. This is the
+# signal to rely on since builds are not produced on the Windows dev machine.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build & test (linux/amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Resolve dependencies
+        run: go mod tidy
+
+      - name: Verify go.mod is tidy
+        run: |
+          if ! git diff --exit-code go.mod go.sum; then
+            echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit the result."
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # gofmt is reported but non-blocking: the hard signal we rely on is that
+      # the code vets, builds, and tests cleanly for Linux. Run `make fmt`
+      # locally to apply formatting.
+      - name: gofmt report (non-blocking)
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::warning::The following files are not gofmt'ed (run 'make fmt'):"
+            echo "$unformatted"
+          fi
+
+      - name: Build (agent + controller)
+        run: make build
+
+      - name: Test
+        run: go test ./...

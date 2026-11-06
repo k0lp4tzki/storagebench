@@ -1,0 +1,38 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+
+# Runtime data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+/data/
+/var/
+
+# Node / web
+/web/node_modules/
+/web/dist/
+/web/.vite/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Logs
+*.log
+/logs/
+
+# Local secrets / tokens (never commit real tokens)
+*.token
+secrets.*
+config.local.*
