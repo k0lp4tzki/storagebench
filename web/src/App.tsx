@@ -11,6 +11,7 @@ import { LiveView } from "./pages/LiveView";
 import { Results } from "./pages/Results";
 import { RunDetailPage } from "./pages/RunDetailPage";
 import { BatchDetailPage } from "./pages/BatchDetailPage";
+import { ComparePage } from "./pages/ComparePage";
 
 const NAV: { to: string; label: string; icon: IconName; end?: boolean; live?: boolean }[] = [
   { to: "/", label: "Übersicht", icon: "dashboard", end: true },
@@ -76,6 +77,7 @@ export function App() {
               <Route path="/profiles/:id" element={<ProfileEditor />} />
               <Route path="/live" element={<LiveView />} />
               <Route path="/results" element={<Results />} />
+              <Route path="/compare" element={<ComparePage />} />
               <Route path="/runs/:id" element={<RunDetailPage />} />
               <Route path="/batches/:id" element={<BatchDetailPage />} />
             </Routes>

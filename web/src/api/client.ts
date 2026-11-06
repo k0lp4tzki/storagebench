@@ -5,6 +5,7 @@ import type {
   AgentView,
   Batch,
   BatchDetail,
+  CompareRun,
   EventRecord,
   FaultRecord,
   InjectFaultRequest,
@@ -94,6 +95,13 @@ export const api = {
     getJSON<BatchDetail>(`/api/batches/${encodeURIComponent(id)}`),
   startBatch: (req: StartBatchRequest) =>
     postJSON<{ batchId: string }>("/api/batches", req),
+
+  // Comparison + CSV export (Phase 5)
+  compare: (ids: string[]) =>
+    getJSON<CompareRun[]>(`/api/compare?runs=${encodeURIComponent(ids.join(","))}`),
+  runExportCsvUrl: (id: string) => `/api/runs/${encodeURIComponent(id)}/export.csv`,
+  compareExportCsvUrl: (ids: string[]) =>
+    `/api/compare/export.csv?runs=${encodeURIComponent(ids.join(","))}`,
 
   // Faults (resilience testing)
   runFaults: (id: string) =>

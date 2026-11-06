@@ -215,11 +215,16 @@ export function RunDetailPage() {
               </button>
             </>
           ) : (
-            run.resolvedConfig && (
-              <button className="btn secondary" disabled={busy} onClick={doRestart} title="Startet denselben Lauf mit identischer Konfiguration">
-                <Icon name="restart" /> Erneut ausführen
-              </button>
-            )
+            <>
+              <a className="btn secondary" href={api.runExportCsvUrl(run.id)} download title="Zusammenfassung und Zeitreihen als CSV herunterladen">
+                <Icon name="down" size={13} /> CSV
+              </a>
+              {run.resolvedConfig && (
+                <button className="btn secondary" disabled={busy} onClick={doRestart} title="Startet denselben Lauf mit identischer Konfiguration">
+                  <Icon name="restart" /> Erneut ausführen
+                </button>
+              )}
+            </>
           )
         }
       />

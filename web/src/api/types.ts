@@ -100,6 +100,39 @@ export interface RunDetail {
   faults?: FaultRecord[];
 }
 
+// --- Cross-run comparison (Phase 5) ---
+
+export interface FioSummaryValues {
+  exitCode: number;
+  iopsRead: number;
+  iopsWrite: number;
+  bwReadKBs: number;
+  bwWriteKBs: number;
+  latMeanUs: number;
+  latP95Us: number;
+  latP99Us: number;
+  latP999Us: number;
+}
+
+export interface CompareNode {
+  agentId: string;
+  hostname: string;
+  phase: string;
+  summary: FioSummaryValues;
+  // stddev/mean of total IOPS over the run; -1 if unknown.
+  iopsCv: number;
+}
+
+export interface CompareRun {
+  id: string;
+  name: string;
+  status: string;
+  startedAt: string;
+  endedAt: string;
+  nodes: CompareNode[];
+  aggregate: FioSummaryValues;
+}
+
 // --- Fault injection (resilience testing) ---
 
 export type FaultKind = "latency" | "loss" | "bandwidth" | "partition";

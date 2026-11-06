@@ -28,6 +28,10 @@ export function Results() {
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Selection for cross-run comparison (runs tab only).
+  const [selected, setSelected] = useState<string[]>([]);
+  const toggleSel = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const setParam = (k: string, v: string, def: string) => {
     const next = new URLSearchParams(params);
@@ -169,6 +173,7 @@ export function Results() {
             <table className="data">
               <thead>
                 <tr>
+                  <th style={{ width: 36 }} />
                   <th>Lauf</th>
                   <th>Status</th>
                   <th>Gestartet</th>
@@ -179,6 +184,14 @@ export function Results() {
               <tbody>
                 {shownRuns.map((r) => (
                   <tr key={r.id} className="click" onClick={() => nav(`/runs/${r.id}`)}>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(r.id)}
+                        onChange={() => toggleSel(r.id)}
+                        aria-label={`${r.name || "Lauf"} für Vergleich auswählen`}
+                      />
+                    </td>
                     <td>
                       <Link to={`/runs/${r.id}`} className="cell-title" onClick={(e) => e.stopPropagation()}>
                         {r.name || "Lauf"}
@@ -202,6 +215,26 @@ export function Results() {
           </div>
         )}
       </section>
+
+      {tab === "runs" && selected.length > 0 && (
+        <div className="compare-bar">
+          <span>
+            {selected.length} {selected.length === 1 ? "Lauf" : "Läufe"} ausgewählt
+          </span>
+          <div className="grow" />
+          <button className="btn ghost sm" onClick={() => setSelected([])}>
+            Auswahl leeren
+          </button>
+          <button
+            className="btn"
+            disabled={selected.length < 2}
+            title={selected.length < 2 ? "Mindestens zwei Läufe wählen" : "Ausgewählte Läufe vergleichen"}
+            onClick={() => nav(`/compare?runs=${encodeURIComponent(selected.join(","))}`)}
+          >
+            <Icon name="results" size={13} /> Vergleichen
+          </button>
+        </div>
+      )}
     </div>
   );
 }
