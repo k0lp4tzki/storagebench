@@ -84,6 +84,17 @@ export function Chart({
   const { theme } = useTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
+  // Align every series to the x length so uPlot never silently drops a series
+  // (and thus mis-computes the y-range) when arrays are momentarily mismatched.
+  const alignedData = useMemo<(number | null)[][]>(() => {
+    const n = x.length;
+    return series.map((s) => {
+      if (s.data.length === n) return s.data;
+      const out: (number | null)[] = new Array(n).fill(null);
+      for (let i = 0; i < Math.min(n, s.data.length); i++) out[i] = s.data[i];
+      return out;
+    });
+  }, [x, series]);
   // Keep the latest markers in a ref so the draw hook can read them without
   // rebuilding the plot on every marker change.
   const markersRef = useRef<ChartMarker[] | undefined>(markers);
@@ -183,7 +194,7 @@ export function Chart({
       },
     };
 
-    const plot = new uPlot(opts, [x, ...series.map((s) => s.data)], wrap);
+    const plot = new uPlot(opts, [x, ...alignedData], wrap);
     plotRef.current = plot;
     const ro = new ResizeObserver(() => {
       plot.setSize({ width: wrap.clientWidth || 600, height });
@@ -194,12 +205,15 @@ export function Chart({
       plot.destroy();
       plotRef.current = null;
     };
+    // Recreate when the data first appears (hasData) so the y-scale fits real
+    // values instead of staying on the empty-data fallback range.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|")]);
+  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|"), x.length > 0]);
 
   useEffect(() => {
-    plotRef.current?.setData([x, ...series.map((s) => s.data)]);
-  }, [x, series]);
+    // resetScales=true so the y-range recomputes as new samples arrive.
+    plotRef.current?.setData([x, ...alignedData], true);
+  }, [x, alignedData]);
 
   // Redraw when markers change (the draw hook reads them from the ref).
   useEffect(() => {
