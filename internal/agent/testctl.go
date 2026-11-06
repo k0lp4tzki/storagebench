@@ -53,6 +53,9 @@ type TestController struct {
 	runner  *benchmark.Runner
 	running bool
 	cancel  context.CancelFunc
+	// aborted marks that the active run was explicitly aborted, so execute reports
+	// the terminal phase as "aborted" rather than "completed".
+	aborted bool
 }
 
 // nopReporter is used when no session is connected.
@@ -143,6 +146,7 @@ func (tc *TestController) Start(runID string) error {
 	tc.runner = runner
 	tc.cancel = cancel
 	tc.running = true
+	tc.aborted = false
 	tc.mu.Unlock()
 
 	workDir := filepath.Join(tc.spoolDir, "runs", sanitizeID(runID))
@@ -184,10 +188,24 @@ func (tc *TestController) execute(ctx context.Context, runID string, spec *bench
 
 	tc.reportState(runID, protocol.PhaseRunning, "running")
 	res, err := runner.Run(ctx, spec, workDir, 1, onLive)
+
+	// Determine whether this run was explicitly aborted (vs. a clean finish or a
+	// graceful stop). An aborted run reports the terminal "aborted" phase.
+	tc.mu.Lock()
+	wasAborted := tc.aborted
+	tc.mu.Unlock()
+
 	if err != nil {
 		tc.log.Warn("fio run failed", "run", runID, "err", err)
 		tc.reportEvent(runID, protocol.SeverityError, "fio", err.Error())
 		tc.reportState(runID, protocol.PhaseFailed, err.Error())
+		return
+	}
+
+	if wasAborted {
+		tc.reportEvent(runID, protocol.SeverityWarn, "fio", "benchmark aborted")
+		tc.reportState(runID, protocol.PhaseAborted, "aborted")
+		tc.log.Info("test aborted", "run", runID)
 		return
 	}
 
@@ -233,6 +251,7 @@ func (tc *TestController) Abort(runID, reason string) error {
 	if !tc.running || tc.current == nil || tc.current.RunID != runID {
 		return fmt.Errorf("no running test with run id %q", runID)
 	}
+	tc.aborted = true
 	tc.reportState(runID, protocol.PhaseAborting, reason)
 	if tc.cancel != nil {
 		tc.cancel()

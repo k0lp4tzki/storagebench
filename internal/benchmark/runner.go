@@ -77,13 +77,14 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 		return nil, fmt.Errorf("write jobfile: %w", err)
 	}
 
-	// Final report path (json+). We ask fio to also emit live status as JSON to
-	// stdout via --status-interval.
-	finalReportPath := filepath.Join(workDir, "result.json")
-
+	// We do NOT pass --output: with --status-interval, fio writes the periodic
+	// status dumps AND the final report to its normal output. Routing that to a
+	// file would send the interval dumps there too, leaving stdout empty and the
+	// live view dead. So fio writes everything to stdout as a sequence of
+	// concatenated JSON documents; we parse the stream for live updates and keep
+	// the last complete document as the final report.
 	args := []string{
 		"--output-format=json+",
-		"--output=" + finalReportPath,
 		fmt.Sprintf("--status-interval=%d", statusIntervalSec),
 	}
 	// Safety net for read-only workloads against a real block device: fio's
@@ -122,11 +123,13 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 		return nil, fmt.Errorf("start fio: %w", err)
 	}
 
-	// Consume stdout for live JSON status documents in a goroutine.
+	// Consume stdout for live JSON status documents in a goroutine. The last
+	// complete document is captured as the final report.
 	liveDone := make(chan struct{})
+	var lastDoc []byte
 	go func() {
 		defer close(liveDone)
-		r.consumeLive(stdout, onLive)
+		lastDoc = r.consumeLive(stdout, onLive)
 	}()
 
 	// Wait for fio to exit (or context cancellation handled by CommandContext).
@@ -136,10 +139,10 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 	exitCode := mp.exitCode()
 
 	res := &Result{ExitCode: exitCode}
-	// Read the final report if fio wrote it.
-	if data, rErr := os.ReadFile(finalReportPath); rErr == nil && len(bytes.TrimSpace(data)) > 0 {
-		res.FinalReportJSON = data
-		if rep, pErr := ParseReport(data); pErr == nil {
+	// The final report is the last complete JSON document fio emitted on stdout.
+	if len(bytes.TrimSpace(lastDoc)) > 0 {
+		res.FinalReportJSON = lastDoc
+		if rep, pErr := ParseReport(lastDoc); pErr == nil {
 			if sum, ok := rep.Summary(); ok {
 				res.Summary = sum
 			}
@@ -160,10 +163,12 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 }
 
 // consumeLive reads concatenated JSON status documents from fio's stdout and
-// invokes onLive for each complete document.
-func (r *Runner) consumeLive(stdout io.Reader, onLive func(LiveUpdate)) {
+// invokes onLive for each complete document. It returns the last complete
+// document seen, which is the final report fio prints at exit.
+func (r *Runner) consumeLive(stdout io.Reader, onLive func(LiveUpdate)) []byte {
 	reader := bufio.NewReaderSize(stdout, 64*1024)
 	var acc []byte
+	var last []byte
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := reader.Read(buf)
@@ -172,6 +177,7 @@ func (r *Runner) consumeLive(stdout io.Reader, onLive func(LiveUpdate)) {
 			docs, rem := SplitConcatenatedJSON(acc)
 			acc = rem
 			for _, doc := range docs {
+				last = doc
 				if onLive == nil {
 					continue
 				}
@@ -185,7 +191,7 @@ func (r *Runner) consumeLive(stdout io.Reader, onLive func(LiveUpdate)) {
 			}
 		}
 		if err != nil {
-			return
+			return last
 		}
 	}
 }

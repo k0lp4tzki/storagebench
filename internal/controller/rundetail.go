@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 	"strings"
+
+	"github.com/storagebench/storagebench/internal/protocol"
 )
 
 // handleRunDetail routes /api/runs/{id} and its sub-resources:
@@ -103,11 +105,33 @@ func (s *Server) runStop(w http.ResponseWriter, runID string, abort bool) {
 		writeError(w, http.StatusNotFound, "run not found or has no agents")
 		return
 	}
-	if abort {
-		s.hub.AbortRun(agents, runID, "aborted via UI")
-	} else {
-		s.hub.StopRun(agents, runID)
+
+	// Signal every connected agent. Track whether any agent actually received it,
+	// so we can finalize a stuck run whose agents are gone.
+	reached := 0
+	for _, agentID := range agents {
+		var sendErr error
+		if abort {
+			sendErr = s.hub.SendControl(agentID, protocol.TypeAbort, protocol.Abort{RunID: runID, Reason: "aborted via UI"})
+		} else {
+			sendErr = s.hub.SendControl(agentID, protocol.TypeStop, protocol.Stop{RunID: runID})
+		}
+		if sendErr == nil {
+			reached++
+		}
 	}
+
+	// Fallback: if no participating agent is connected, the run can never reach a
+	// terminal phase on its own. Mark it aborted directly so the UI is unstuck.
+	if reached == 0 {
+		if err := s.store.SetRunStatus(runID, "aborted"); err != nil {
+			writeError(w, http.StatusInternalServerError, "could not finalize run")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"runId": runID, "action": "aborted (no agents connected)"})
+		return
+	}
+
 	writeJSON(w, http.StatusAccepted, map[string]string{"runId": runID, "action": actionWord(abort)})
 }
 

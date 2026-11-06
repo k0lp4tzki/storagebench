@@ -92,7 +92,8 @@ export interface RunDetail {
   status: string;
   startedAt: string;
   endedAt: string;
-  resolvedConfig: unknown;
+  // The frozen per-agent spec map (agentId -> Spec). Used to restart a run.
+  resolvedConfig: Record<string, Spec> | null;
   nodes: RunNodeDetail[];
 }
 

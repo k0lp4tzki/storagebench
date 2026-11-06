@@ -5,6 +5,7 @@ import { Wizard } from "./pages/Wizard";
 import { LiveView } from "./pages/LiveView";
 import { Results } from "./pages/Results";
 import { RunDetailPage } from "./pages/RunDetailPage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 export function App() {
   const { connected } = useLive();
@@ -25,13 +26,15 @@ export function App() {
         </div>
       </header>
       <main className="content">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/wizard" element={<Wizard />} />
-          <Route path="/live" element={<LiveView />} />
-          <Route path="/results" element={<Results />} />
-          <Route path="/runs/:id" element={<RunDetailPage />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/wizard" element={<Wizard />} />
+            <Route path="/live" element={<LiveView />} />
+            <Route path="/results" element={<Results />} />
+            <Route path="/runs/:id" element={<RunDetailPage />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );

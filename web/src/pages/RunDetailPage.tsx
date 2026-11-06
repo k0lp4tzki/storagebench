@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type {
   EventRecord,
   MetricSample,
   RunDetail,
+  StartRunRequest,
 } from "../api/types";
 import { TimeChart } from "../components/TimeChart";
 import { fmtBW, fmtIOPS, fmtLatUs, fmtTime } from "../format";
@@ -13,6 +14,7 @@ const ACTIVE = new Set(["running", "assigned", "starting", "pending"]);
 
 export function RunDetailPage() {
   const { id = "" } = useParams();
+  const nav = useNavigate();
   const [run, setRun] = useState<RunDetail | null>(null);
   const [metrics, setMetrics] = useState<Record<string, MetricSample[]>>({});
   const [events, setEvents] = useState<EventRecord[]>([]);
@@ -27,8 +29,8 @@ export function RunDetailPage() {
         api.runEvents(id),
       ]);
       setRun(d);
-      setMetrics(m);
-      setEvents(e);
+      setMetrics(m ?? {});
+      setEvents(e ?? []);
     } catch (ex) {
       setErr(String(ex));
     }
@@ -58,10 +60,31 @@ export function RunDetailPage() {
     }
   }
 
+  // Restart re-runs the same frozen config as a new run and navigates to it.
+  async function doRestart() {
+    if (!run?.resolvedConfig) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const req: StartRunRequest = {
+        name: run.name || "Neustart",
+        specs: run.resolvedConfig,
+      };
+      const { runId } = await api.startRun(req);
+      nav(`/runs/${runId}`);
+    } catch (ex) {
+      setErr(String(ex));
+      setBusy(false);
+    }
+  }
+
   if (err && !run) return <div className="error">{err}</div>;
   if (!run) return <div className="muted">Lädt…</div>;
 
   const active = ACTIVE.has(run.status);
+  // Go serializes empty slices as null; guard every list access.
+  const nodes = run.nodes ?? [];
+  const eventList = events ?? [];
 
   return (
     <div>
@@ -88,6 +111,11 @@ export function RunDetailPage() {
             </button>
           </>
         )}
+        {!active && run.resolvedConfig && (
+          <button className="btn" disabled={busy} onClick={doRestart}>
+            Neu starten
+          </button>
+        )}
       </div>
       {err && <div className="error">{err}</div>}
 
@@ -109,7 +137,7 @@ export function RunDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {run.nodes.map((n) => {
+              {nodes.map((n) => {
                 const f = n.fioSummary;
                 return (
                   <tr key={n.agentId}>
@@ -133,7 +161,7 @@ export function RunDetailPage() {
       <section style={{ marginBottom: 24 }}>
         <h2>Zeitverlauf</h2>
         <div className="grid3">
-          {run.nodes.map((n) => {
+          {nodes.map((n) => {
             const s = metrics[n.agentId] ?? [];
             return (
               <div className="card" key={n.agentId}>
@@ -191,14 +219,14 @@ export function RunDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {events.length === 0 && (
+              {eventList.length === 0 && (
                 <tr>
                   <td colSpan={5} className="muted">
                     Keine Ereignisse.
                   </td>
                 </tr>
               )}
-              {events.map((e, i) => (
+              {eventList.map((e, i) => (
                 <tr key={i}>
                   <td>{new Date(e.tsWallMilli).toLocaleTimeString("de-DE")}</td>
                   <td>{e.agentId}</td>
