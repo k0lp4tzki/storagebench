@@ -6,7 +6,10 @@ import type {
   Batch,
   BatchDetail,
   EventRecord,
+  FaultRecord,
+  InjectFaultRequest,
   Profile,
+  RevertFaultRequest,
   RunDetail,
   RunSummary,
   StartBatchRequest,
@@ -91,4 +94,18 @@ export const api = {
     getJSON<BatchDetail>(`/api/batches/${encodeURIComponent(id)}`),
   startBatch: (req: StartBatchRequest) =>
     postJSON<{ batchId: string }>("/api/batches", req),
+
+  // Faults (resilience testing)
+  runFaults: (id: string) =>
+    getJSON<FaultRecord[]>(`/api/runs/${encodeURIComponent(id)}/faults`),
+  injectFault: (id: string, req: InjectFaultRequest) =>
+    postJSON<{ faultId: string; status: string }>(
+      `/api/runs/${encodeURIComponent(id)}/faults`,
+      req,
+    ),
+  revertFault: (id: string, req: RevertFaultRequest) =>
+    postJSON<{ status: string }>(
+      `/api/runs/${encodeURIComponent(id)}/faults/revert`,
+      req,
+    ),
 };

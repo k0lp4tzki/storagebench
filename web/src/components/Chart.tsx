@@ -11,6 +11,15 @@ export interface ChartSeries {
   color: string;
 }
 
+// ChartMarker is a vertical annotation at an x position (seconds from start),
+// used to show fault inject/revert moments on the timeline.
+export interface ChartMarker {
+  x: number;
+  label: string;
+  // "inject" (warning colour) or "revert" (muted/ok colour).
+  kind: "inject" | "revert";
+}
+
 interface Props {
   x: number[];
   series: ChartSeries[];
@@ -21,6 +30,8 @@ interface Props {
   emptyText?: string;
   // Fill the area under each line (good for 1–2 series, noisy for many).
   fill?: boolean;
+  // Optional vertical markers (e.g. fault inject/revert) drawn over the plot.
+  markers?: ChartMarker[];
 }
 
 function cssVar(name: string): string {
@@ -68,10 +79,15 @@ export function Chart({
   title,
   emptyText = "Noch keine Messwerte",
   fill = true,
+  markers,
 }: Props) {
   const { theme } = useTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
+  // Keep the latest markers in a ref so the draw hook can read them without
+  // rebuilding the plot on every marker change.
+  const markersRef = useRef<ChartMarker[] | undefined>(markers);
+  markersRef.current = markers;
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const fmt = useMemo(() => yFormat ?? ((v: number) => String(Math.round(v))), [yFormat]);
   const colors = useMemo(
@@ -142,6 +158,28 @@ export function Chart({
             setHoverIdx(idx == null || u.cursor.left == null || u.cursor.left < 0 ? null : idx);
           },
         ],
+        draw: [
+          (u: uPlot) => {
+            const ms = markersRef.current;
+            if (!ms || ms.length === 0) return;
+            const ctx = u.ctx;
+            const warn = cssVar("--warn") || "#e8b339";
+            const ok = cssVar("--text-faint") || "#7b838f";
+            ctx.save();
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 3]);
+            for (const m of ms) {
+              const xpos = u.valToPos(m.x, "x", true);
+              if (xpos < u.bbox.left || xpos > u.bbox.left + u.bbox.width) continue;
+              ctx.strokeStyle = m.kind === "inject" ? warn : ok;
+              ctx.beginPath();
+              ctx.moveTo(xpos, u.bbox.top);
+              ctx.lineTo(xpos, u.bbox.top + u.bbox.height);
+              ctx.stroke();
+            }
+            ctx.restore();
+          },
+        ],
       },
     };
 
@@ -162,6 +200,11 @@ export function Chart({
   useEffect(() => {
     plotRef.current?.setData([x, ...series.map((s) => s.data)]);
   }, [x, series]);
+
+  // Redraw when markers change (the draw hook reads them from the ref).
+  useEffect(() => {
+    plotRef.current?.redraw();
+  }, [markers]);
 
   const n = x.length;
   const idx = hoverIdx != null && hoverIdx < n ? hoverIdx : n - 1;

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { EventRecord, FioSummary, MetricSample, RunDetail, Spec, StartRunRequest } from "../api/types";
-import { Chart } from "../components/Chart";
+import { Chart, type ChartMarker } from "../components/Chart";
 import { RunStatusBadge } from "../components/StatusBadge";
 import { Empty, PageHeader } from "../components/PageHeader";
 import { Icon } from "../components/Icon";
 import { ConfirmDialog } from "../components/Modal";
+import { FaultPanel } from "../components/FaultPanel";
+import { useLive } from "../state/LiveProvider";
 import { ACTIVE_RUN, workloadLabel } from "../domain";
 import {
   coefficientOfVariation,
@@ -39,6 +41,7 @@ const COLS: Col[] = [
 export function RunDetailPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
+  const { agents } = useLive();
   const [run, setRun] = useState<RunDetail | null>(null);
   const [metrics, setMetrics] = useState<Record<string, MetricSample[]>>({});
   const [events, setEvents] = useState<EventRecord[]>([]);
@@ -127,12 +130,33 @@ export function RunDetailPage() {
         data: (metrics[n.agentId] ?? []).map(pick),
         color: HOST_COLORS[i % HOST_COLORS.length],
       }));
+    // Fault markers are positioned relative to the first sample timestamp so they
+    // line up with the seconds-from-start x-axis.
+    const t0 = longest.length ? longest[0] : 0;
+    const markers: ChartMarker[] = [];
+    if (t0 > 0) {
+      for (const f of run?.faults ?? []) {
+        markers.push({
+          x: Math.max(0, Math.round((f.tsInjectMilli - t0) / 1000)),
+          label: f.detail || f.kind,
+          kind: "inject",
+        });
+        if (f.tsRevertMilli > 0) {
+          markers.push({
+            x: Math.max(0, Math.round((f.tsRevertMilli - t0) / 1000)),
+            label: "Ende: " + (f.detail || f.kind),
+            kind: "revert",
+          });
+        }
+      }
+    }
     return {
       x,
+      markers,
       iops: mk((v) => (v.ior ?? 0) + (v.iow ?? 0)),
       lat: mk((v) => v.l99 ?? 0),
     };
-  }, [nodes, metrics]);
+  }, [nodes, metrics, run]);
 
   if (err && !run)
     return (
@@ -304,15 +328,18 @@ export function RunDetailPage() {
       <div className="split" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
         <section className="panel">
           <div className="panel-body">
-            <Chart title="IOPS gesamt" x={charts.x} height={230} yFormat={fmtIOPS} series={charts.iops} fill={nodes.length === 1} />
+            <Chart title="IOPS gesamt" x={charts.x} height={230} yFormat={fmtIOPS} series={charts.iops} fill={nodes.length === 1} markers={charts.markers} />
           </div>
         </section>
         <section className="panel">
           <div className="panel-body">
-            <Chart title="Latenz p99" x={charts.x} height={230} yFormat={fmtLatUs} series={charts.lat} fill={false} />
+            <Chart title="Latenz p99" x={charts.x} height={230} yFormat={fmtLatUs} series={charts.lat} fill={false} markers={charts.markers} />
           </div>
         </section>
       </div>
+
+      {/* Fault injection (resilience testing) */}
+      <FaultPanel runId={run.id} nodes={nodes} agents={agents} faults={run.faults ?? []} onChanged={load} />
 
       <div className="split">
         {/* Events */}

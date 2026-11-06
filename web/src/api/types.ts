@@ -23,6 +23,7 @@ export interface Capabilities {
   multipath: boolean;
   deviceMapper: boolean;
   tc: boolean;
+  faultInjection?: boolean;
   smartctl: boolean;
   nvme: boolean;
   iostat: boolean;
@@ -96,6 +97,43 @@ export interface RunDetail {
   // The frozen per-agent spec map (agentId -> Spec). Used to restart a run.
   resolvedConfig: Record<string, Spec> | null;
   nodes: RunNodeDetail[];
+  faults?: FaultRecord[];
+}
+
+// --- Fault injection (resilience testing) ---
+
+export type FaultKind = "latency" | "loss" | "bandwidth" | "partition";
+
+export interface FaultSpec {
+  kind: FaultKind;
+  iface: string;
+  delayMs?: number;
+  jitterMs?: number;
+  lossPercent?: number;
+  rateKbit?: number;
+}
+
+export interface FaultRecord {
+  id: number;
+  runId: string;
+  faultId: string;
+  agentId: string;
+  kind: string;
+  iface: string;
+  detail: string;
+  tsInjectMilli: number;
+  tsRevertMilli: number;
+}
+
+export interface InjectFaultRequest {
+  agentId: string;
+  spec: FaultSpec;
+  ttlSeconds?: number;
+}
+
+export interface RevertFaultRequest {
+  agentId: string;
+  iface: string;
 }
 
 export interface EventRecord {
