@@ -203,6 +203,7 @@ type TestResult struct {
 	LatMeanUs     float64 `json:"latMeanUs"`
 	LatP95Us      float64 `json:"latP95Us"`
 	LatP99Us      float64 `json:"latP99Us"`
+	LatP999Us     float64 `json:"latP999Us"`
 	FioReportJSON string  `json:"fioReportJson,omitempty"`
 }
 

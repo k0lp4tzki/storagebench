@@ -32,6 +32,74 @@ export function defaultSpec(name = "Test"): Spec {
   };
 }
 
+// Built-in workload presets. Picking one fills the step form with sensible,
+// well-known parameters as a starting point; the user can still tweak anything.
+export interface Preset {
+  id: string;
+  label: string;
+  hint: string;
+  // Partial spec merged onto defaultSpec(); `name` becomes the step name.
+  spec: Partial<Spec>;
+}
+
+export const PRESETS: Preset[] = [
+  {
+    id: "rand4k_r_qd32",
+    label: "4K Random Read · QD32",
+    hint: "IOPS-Test, zufälliges Lesen – klassischer SSD-Durchsatz",
+    spec: { name: "4K Rand Read QD32", workload: "randread", blockSize: "4k", ioDepth: 32, numJobs: 4 },
+  },
+  {
+    id: "rand4k_w_qd32",
+    label: "4K Random Write · QD32",
+    hint: "IOPS-Test, zufälliges Schreiben",
+    spec: { name: "4K Rand Write QD32", workload: "randwrite", blockSize: "4k", ioDepth: 32, numJobs: 4 },
+  },
+  {
+    id: "oltp_70_30",
+    label: "OLTP 70/30 · 8K Random",
+    hint: "Datenbank-ähnlich: 70 % lesen, 30 % schreiben",
+    spec: { name: "OLTP 70/30 8K", workload: "randrw", blockSize: "8k", rwMixRead: 70, ioDepth: 32, numJobs: 4 },
+  },
+  {
+    id: "seq_read_1m",
+    label: "Sequenziell Lesen · 1M",
+    hint: "Bandbreiten-Test, großes Blocksize, QD niedrig",
+    spec: { name: "Seq Read 1M", workload: "read", blockSize: "1m", ioDepth: 8, numJobs: 1 },
+  },
+  {
+    id: "seq_write_1m",
+    label: "Sequenziell Schreiben · 1M",
+    hint: "Bandbreiten-Test schreibend",
+    spec: { name: "Seq Write 1M", workload: "write", blockSize: "1m", ioDepth: 8, numJobs: 1 },
+  },
+  {
+    id: "lat_qd1",
+    label: "Latenz · 4K QD1",
+    hint: "Reine Latenzmessung, eine ausstehende I/O",
+    spec: { name: "Latenz 4K QD1", workload: "randread", blockSize: "4k", ioDepth: 1, numJobs: 1 },
+  },
+  {
+    id: "fsync_heavy",
+    label: "fsync-lastig · 4K sync",
+    hint: "Journaling/Commit-Last: sync-Engine, kleine Blöcke",
+    spec: { name: "fsync 4K", workload: "randwrite", blockSize: "4k", engine: "sync", ioDepth: 1, numJobs: 4, directIO: false },
+  },
+];
+
+// applyPreset merges a preset onto the current spec, keeping the target
+// (path/kind/size) the user already set.
+export function applyPreset(current: Spec, p: Preset): Spec {
+  return {
+    ...current,
+    ...p.spec,
+    name: p.spec.name ?? current.name,
+    targetKind: current.targetKind,
+    targetPath: current.targetPath,
+    fileSizeMiB: current.fileSizeMiB,
+  };
+}
+
 export const isMixed = (w: Workload) => w === "randrw" || w === "rw";
 export const isWrite = (w: Workload) =>
   w === "randwrite" || w === "write" || w === "randrw" || w === "rw";
@@ -49,8 +117,27 @@ export function SpecForm({ spec, onChange }: Props) {
   const deviceWrite =
     spec.targetKind === "device" && isWrite(spec.workload) && !spec.allowDestructive;
 
+  function onPreset(id: string) {
+    const p = PRESETS.find((x) => x.id === id);
+    if (p) onChange(applyPreset(spec, p));
+  }
+
   return (
     <div>
+      <div className="field">
+        <label>Vorlage (füllt die Felder aus)</label>
+        <select value="" onChange={(e) => onPreset(e.target.value)}>
+          <option value="" disabled>
+            Vorlage wählen…
+          </option>
+          {PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label} — {p.hint}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="field">
         <label>Name des Schritts</label>
         <input value={spec.name} onChange={(e) => set("name", e.target.value)} />

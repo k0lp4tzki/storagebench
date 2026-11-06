@@ -65,6 +65,8 @@ type SummaryMetrics struct {
 	LatMeanUs float64 `json:"latMeanUs"`
 	LatP95Us  float64 `json:"latP95Us"`
 	LatP99Us  float64 `json:"latP99Us"`
+	// LatP999Us is the p99.9 tail latency in microseconds.
+	LatP999Us float64 `json:"latP999Us"`
 }
 
 // ParseReport unmarshals a single fio JSON document.
@@ -98,6 +100,7 @@ func (r *FioReport) Summary() (SummaryMetrics, bool) {
 	m.LatMeanUs = lat.Mean / 1000.0
 	m.LatP95Us = lat.Percentile["95.000000"] / 1000.0
 	m.LatP99Us = lat.Percentile["99.000000"] / 1000.0
+	m.LatP999Us = lat.Percentile["99.900000"] / 1000.0
 	return m, true
 }
 

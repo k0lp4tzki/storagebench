@@ -36,3 +36,22 @@ export function secondsFromStart(tsMillis: number[]): number[] {
   const t0 = tsMillis[0];
   return tsMillis.map((t) => Math.max(0, Math.round((t - t0) / 1000)));
 }
+
+// coefficientOfVariation returns the relative standard deviation (stddev/mean)
+// of a series as a fraction. It is a simple, unit-free stability measure: lower
+// is steadier. Returns null when there is too little signal to be meaningful.
+export function coefficientOfVariation(values: number[]): number | null {
+  const xs = values.filter((v) => Number.isFinite(v));
+  if (xs.length < 3) return null;
+  const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  if (mean <= 0) return null;
+  const variance =
+    xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / xs.length;
+  return Math.sqrt(variance) / mean;
+}
+
+// fmtPct formats a fraction (0..1) as a percentage string.
+export function fmtPct(frac: number | null | undefined): string {
+  if (frac == null || !Number.isFinite(frac)) return "–";
+  return `${(frac * 100).toFixed(1)} %`;
+}

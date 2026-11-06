@@ -220,6 +220,7 @@ func (tc *TestController) execute(ctx context.Context, runID string, spec *bench
 		LatMeanUs:  res.Summary.LatMeanUs,
 		LatP95Us:   res.Summary.LatP95Us,
 		LatP99Us:   res.Summary.LatP99Us,
+		LatP999Us:  res.Summary.LatP999Us,
 	}
 	if len(res.FinalReportJSON) > 0 {
 		result.FioReportJSON = string(res.FinalReportJSON)

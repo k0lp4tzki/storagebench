@@ -18,7 +18,8 @@ const sampleFioJSON = `{
           "mean": 320000.0,
           "percentile": {
             "95.000000": 500000.0,
-            "99.000000": 900000.0
+            "99.000000": 900000.0,
+            "99.900000": 1500000.0
           }
         }
       },
@@ -55,6 +56,10 @@ func TestParseReportAndSummary(t *testing.T) {
 	}
 	if sum.LatP99Us != 900.0 {
 		t.Errorf("LatP99Us = %v, want 900", sum.LatP99Us)
+	}
+	// clat_ns p99.9 1500000ns -> 1500us.
+	if sum.LatP999Us != 1500.0 {
+		t.Errorf("LatP999Us = %v, want 1500", sum.LatP999Us)
 	}
 }
 

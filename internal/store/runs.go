@@ -98,6 +98,7 @@ func (s *Store) OnTestResult(agentID string, res protocol.TestResult) {
 		"latMeanUs":  res.LatMeanUs,
 		"latP95Us":   res.LatP95Us,
 		"latP99Us":   res.LatP99Us,
+		"latP999Us":  res.LatP999Us,
 	})
 	_, _ = s.db.Exec(`UPDATE run_node SET fio_summary=?, phase='completed' WHERE id=?`, string(summary), runNodeID)
 

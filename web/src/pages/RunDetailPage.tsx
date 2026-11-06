@@ -9,9 +9,27 @@ import type {
 } from "../api/types";
 import { Chart } from "../components/Chart";
 import { RunStatusBadge } from "../components/StatusBadge";
-import { fmtBW, fmtIOPS, fmtLatUs, fmtTime, secondsFromStart } from "../format";
+import {
+  coefficientOfVariation,
+  fmtBW,
+  fmtIOPS,
+  fmtLatUs,
+  fmtPct,
+  fmtTime,
+  secondsFromStart,
+} from "../format";
 
 const ACTIVE = new Set(["running", "assigned", "starting", "pending"]);
+
+// A small, colorblind-friendly palette for per-host series in overlaid charts.
+const HOST_COLORS = [
+  "#4f46e5",
+  "#0891b2",
+  "#d97706",
+  "#be123c",
+  "#15803d",
+  "#7c3aed",
+];
 
 export function RunDetailPage() {
   const { id = "" } = useParams();
@@ -122,7 +140,7 @@ export function RunDetailPage() {
 
       {/* Comparison */}
       <section className="section">
-        <h2>Vergleich</h2>
+        <h2>Vergleich der Hosts</h2>
         <div className="card pad-0">
           <table>
             <thead>
@@ -136,11 +154,18 @@ export function RunDetailPage() {
                 <th>Lat Ø</th>
                 <th>p95</th>
                 <th>p99</th>
+                <th>p99.9</th>
+                <th title="Variationskoeffizient der IOPS über die Zeit – kleiner = stabiler">
+                  Stabilität
+                </th>
               </tr>
             </thead>
             <tbody>
               {nodes.map((n) => {
                 const f = n.fioSummary;
+                const s = metrics[n.agentId] ?? [];
+                const iopsSeries = s.map((v) => (v.ior ?? 0) + (v.iow ?? 0));
+                const cv = coefficientOfVariation(iopsSeries);
                 return (
                   <tr key={n.agentId}>
                     <td style={{ fontWeight: 550 }}>{n.hostname}</td>
@@ -154,6 +179,18 @@ export function RunDetailPage() {
                     <td>{fmtLatUs(f?.latMeanUs)}</td>
                     <td>{fmtLatUs(f?.latP95Us)}</td>
                     <td>{fmtLatUs(f?.latP99Us)}</td>
+                    <td>{fmtLatUs(f?.latP999Us)}</td>
+                    <td title="Variationskoeffizient der IOPS – kleiner = stabiler">
+                      {cv == null ? (
+                        <span className="faint">–</span>
+                      ) : (
+                        <span
+                          className={`badge ${cv < 0.1 ? "ok" : cv < 0.25 ? "warn" : "err"}`}
+                        >
+                          ±{fmtPct(cv)}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -162,42 +199,53 @@ export function RunDetailPage() {
         </div>
       </section>
 
-      {/* Time series */}
+      {/* Time series — overlaid per host for direct comparison */}
       <section className="section">
-        <h2>Zeitverlauf</h2>
-        <div className="grid cols-2">
-          {nodes.map((n) => {
+        <h2>Zeitverlauf (Hosts überlagert)</h2>
+        {(() => {
+          // Shared x-axis = the longest host series (in seconds-from-start).
+          let longest: number[] = [];
+          for (const n of nodes) {
             const s = metrics[n.agentId] ?? [];
-            const x = secondsFromStart(s.map((v) => v.t));
-            return (
-              <div className="card" key={n.agentId}>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>{n.hostname}</div>
-                <div className="faint" style={{ fontSize: 11 }}>IOPS</div>
-                <Chart
-                  x={x}
-                  height={160}
-                  yFormat={(v) => fmtIOPS(v)}
-                  series={[
-                    { label: "Read", data: s.map((v) => v.ior ?? 0), color: "var(--read)" },
-                    { label: "Write", data: s.map((v) => v.iow ?? 0), color: "var(--write)" },
-                  ]}
-                />
-                <div className="faint" style={{ fontSize: 11, marginTop: 8 }}>
-                  Latenz (µs)
+            if (s.length > longest.length) longest = s.map((v) => v.t);
+          }
+          const x = secondsFromStart(longest);
+          if (x.length === 0) {
+            return <div className="card empty">Noch keine Messpunkte.</div>;
+          }
+          const iopsSeries = nodes.map((n, i) => {
+            const s = metrics[n.agentId] ?? [];
+            return {
+              label: n.hostname,
+              data: s.map((v) => (v.ior ?? 0) + (v.iow ?? 0)),
+              color: HOST_COLORS[i % HOST_COLORS.length],
+            };
+          });
+          const latSeries = nodes.map((n, i) => {
+            const s = metrics[n.agentId] ?? [];
+            return {
+              label: n.hostname,
+              data: s.map((v) => v.l99 ?? 0),
+              color: HOST_COLORS[i % HOST_COLORS.length],
+            };
+          });
+          return (
+            <div className="grid cols-2">
+              <div className="card">
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                  IOPS gesamt (R+W)
                 </div>
-                <Chart
-                  x={x}
-                  height={160}
-                  yFormat={(v) => fmtLatUs(v)}
-                  series={[
-                    { label: "Ø", data: s.map((v) => v.lm ?? 0), color: "var(--accent)" },
-                    { label: "p99", data: s.map((v) => v.l99 ?? 0), color: "var(--err)" },
-                  ]}
-                />
+                <Chart x={x} height={220} yFormat={(v) => fmtIOPS(v)} series={iopsSeries} />
               </div>
-            );
-          })}
-        </div>
+              <div className="card">
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                  Latenz p99 (µs)
+                </div>
+                <Chart x={x} height={220} yFormat={(v) => fmtLatUs(v)} series={latSeries} />
+              </div>
+            </div>
+          );
+        })()}
       </section>
 
       {/* Events */}

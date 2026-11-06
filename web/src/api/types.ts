@@ -75,6 +75,7 @@ export interface FioSummary {
   latMeanUs: number;
   latP95Us: number;
   latP99Us: number;
+  latP999Us?: number;
 }
 
 export interface RunNodeDetail {
