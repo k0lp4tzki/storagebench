@@ -18,11 +18,16 @@ const Ctx = createContext<ThemeCtx | null>(null);
 const STORAGE_KEY = "sb-theme";
 
 function initialTheme(): Theme {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    /* storage unavailable */
+  }
   if (saved === "light" || saved === "dark") return saved;
-  // Default to light, but respect an explicit OS dark preference.
-  if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
-  return "light";
+  // Dark first (lab/ops context), but respect an explicit OS light preference.
+  if (window.matchMedia?.("(prefers-color-scheme: light)").matches) return "light";
+  return "dark";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -30,7 +35,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(STORAGE_KEY, theme);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      /* storage unavailable */
+    }
   }, [theme]);
 
   const toggle = useCallback(

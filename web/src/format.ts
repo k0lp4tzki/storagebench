@@ -55,3 +55,82 @@ export function fmtPct(frac: number | null | undefined): string {
   if (frac == null || !Number.isFinite(frac)) return "–";
   return `${(frac * 100).toFixed(1)} %`;
 }
+
+// ---- Time & duration -------------------------------------------------------
+
+// parseTime returns epoch millis for an ISO string, or null for empty / Go
+// zero-time values.
+export function parseTime(iso: string | undefined | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t) || t < 946684800000) return null; // before 2000 = unset
+  return t;
+}
+
+export function fmtDateTime(iso: string | undefined): string {
+  const t = parseTime(iso);
+  if (t == null) return "–";
+  return new Date(t).toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function fmtClock(iso: string | undefined): string {
+  const t = parseTime(iso);
+  if (t == null) return "–";
+  return new Date(t).toLocaleTimeString("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+// fmtRelative renders "vor 5 Min." style labels for recent timestamps and
+// falls back to a date for anything older than a week.
+export function fmtRelative(iso: string | undefined, now = Date.now()): string {
+  const t = parseTime(iso);
+  if (t == null) return "–";
+  const s = Math.round((now - t) / 1000);
+  if (s < 45) return "gerade eben";
+  const m = Math.round(s / 60);
+  if (m < 60) return `vor ${m} Min.`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `vor ${h} Std.`;
+  const d = Math.round(h / 24);
+  if (d === 1) return "gestern";
+  if (d < 7) return `vor ${d} Tagen`;
+  return new Date(t).toLocaleDateString("de-DE");
+}
+
+// fmtDuration formats seconds as "45 s", "3:20 min" or "1:05 h".
+export function fmtDuration(sec: number | null | undefined): string {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return "–";
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return `${m}:${String(s).padStart(2, "0")} min`;
+  const h = Math.floor(m / 60);
+  return `${h}:${String(m % 60).padStart(2, "0")} h`;
+}
+
+// elapsedSec returns the duration between start and end (or now when running).
+export function elapsedSec(
+  start: string | undefined,
+  end: string | undefined,
+  running = false,
+): number | null {
+  const a = parseTime(start);
+  if (a == null) return null;
+  const b = parseTime(end) ?? (running ? Date.now() : null);
+  if (b == null) return null;
+  return Math.max(0, (b - a) / 1000);
+}
+
+export function shortId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) : id;
+}

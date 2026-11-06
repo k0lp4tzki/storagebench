@@ -1,121 +1,195 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { useTheme } from "../state/ThemeProvider";
 
 export interface ChartSeries {
   label: string;
-  // Y values aligned to the shared x array (seconds-from-start or timestamps).
+  // Y values aligned to the shared x array (seconds from start).
   data: number[];
+  // A literal colour or a CSS custom property reference like "var(--read)".
   color: string;
 }
 
 interface Props {
-  // X axis values (seconds from start). Shared by all series.
   x: number[];
   series: ChartSeries[];
   height?: number;
-  // Formatter for the y-axis / legend values.
   yFormat?: (v: number) => string;
   title?: string;
+  // Text shown over the empty plot when there is no data yet.
+  emptyText?: string;
+  // Fill the area under each line (good for 1–2 series, noisy for many).
+  fill?: boolean;
 }
 
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-// Chart is a theme-aware uPlot time-series chart with axes, grid, legend and a
-// hover cursor. It resizes with its container and rebuilds on theme change.
-export function Chart({ x, series, height = 200, yFormat, title }: Props) {
+// Canvas cannot resolve CSS variables, so "var(--x)" must be looked up first.
+function resolveColor(c: string): string {
+  const m = /^var\((--[\w-]+)\)$/.exec(c.trim());
+  return m ? cssVar(m[1]) || "#888" : c;
+}
+
+function withAlpha(hex: string, a: number): string {
+  if (/^#[0-9a-f]{6}$/i.test(hex)) {
+    return hex + Math.round(a * 255).toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+// "Nice" integer increments: avoids duplicate tick labels such as 0 / 1 / 1
+// when the range is tiny and values get rounded by the formatter.
+const Y_INCRS: number[] = [];
+for (let e = 0; e <= 9; e++) {
+  for (const m of [1, 2, 2.5, 5]) {
+    const v = m * 10 ** e;
+    if (Number.isInteger(v)) Y_INCRS.push(v);
+  }
+}
+const X_INCRS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+
+function fmtSeconds(v: number): string {
+  if (v < 120) return `${v}s`;
+  const m = Math.floor(v / 60);
+  const s = v % 60;
+  return s ? `${m}:${String(s).padStart(2, "0")}` : `${m}m`;
+}
+
+// Chart: theme-aware uPlot time series with a compact header legend that shows
+// the latest values, or the hovered values while the cursor is over the plot.
+export function Chart({
+  x,
+  series,
+  height = 180,
+  yFormat,
+  title,
+  emptyText = "Noch keine Messwerte",
+  fill = true,
+}: Props) {
   const { theme } = useTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
-  const roRef = useRef<ResizeObserver | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const fmt = useMemo(() => yFormat ?? ((v: number) => String(Math.round(v))), [yFormat]);
+  const colors = useMemo(
+    () => series.map((s) => resolveColor(s.color)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [theme, series.map((s) => s.color).join("|")],
+  );
 
-  // (Re)build the plot when structure, theme, or formatter identity changes.
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-
-    const gridColor = cssVar("--border") || "#e3e6ea";
-    const textColor = cssVar("--text-muted") || "#6b7280";
-
-    const fmt = yFormat ?? ((v: number) => String(Math.round(v)));
+    const grid = cssVar("--border") || "#2a2f37";
+    const text = cssVar("--text-faint") || "#7b838f";
+    const font = "11px ui-monospace, Menlo, Consolas, monospace";
 
     const opts: uPlot.Options = {
-      title,
       width: wrap.clientWidth || 600,
       height,
-      padding: [12, 12, 4, 8],
+      padding: [8, 8, 0, 0],
+      legend: { show: false },
       cursor: {
         y: false,
-        points: { size: 6 },
+        points: { size: 7, width: 2 },
+        drag: { x: false, y: false },
       },
-      legend: { show: true, live: true },
       scales: {
         x: { time: false },
-        y: { range: (_u, min, max) => [Math.min(0, min), max <= 0 ? 1 : max * 1.08] },
+        y: {
+          range: (_u, _min, max) => [0, max > 0 ? max * 1.12 : 10],
+        },
       },
       axes: [
         {
-          stroke: textColor,
-          grid: { stroke: gridColor, width: 1 },
-          ticks: { stroke: gridColor, width: 1 },
-          values: (_u, vals) => vals.map((v) => `${v}s`),
-          font: "11px Inter, sans-serif",
+          stroke: text,
+          font,
+          grid: { show: false },
+          ticks: { stroke: grid, width: 1, size: 4 },
+          incrs: X_INCRS,
+          values: (_u, vals) => vals.map((v) => fmtSeconds(v)),
+          space: 60,
+          size: 28,
         },
         {
-          stroke: textColor,
-          grid: { stroke: gridColor, width: 1 },
-          ticks: { stroke: gridColor, width: 1 },
-          size: 56,
+          stroke: text,
+          font,
+          grid: { stroke: grid, width: 1 },
+          ticks: { show: false },
+          incrs: Y_INCRS,
+          size: 58,
+          space: 32,
           values: (_u, vals) => vals.map((v) => fmt(v)),
-          font: "11px Inter, sans-serif",
         },
       ],
       series: [
-        { label: "t", value: (_u, v) => (v == null ? "–" : `${v}s`) },
-        ...series.map((s) => ({
+        {},
+        ...series.map((s, i) => ({
           label: s.label,
-          stroke: s.color,
-          width: 2,
+          stroke: colors[i],
+          width: 1.75,
+          fill: fill && series.length <= 2 ? withAlpha(colors[i], 0.1) : undefined,
           points: { show: false },
-          value: (_u: uPlot, v: number | null) => (v == null ? "–" : fmt(v)),
         })),
       ],
+      hooks: {
+        setCursor: [
+          (u: uPlot) => {
+            const idx = u.cursor.idx;
+            setHoverIdx(idx == null || u.cursor.left == null || u.cursor.left < 0 ? null : idx);
+          },
+        ],
+      },
     };
 
-    const data: uPlot.AlignedData = [
-      x,
-      ...series.map((s) => s.data),
-    ];
-
-    const plot = new uPlot(opts, data, wrap);
+    const plot = new uPlot(opts, [x, ...series.map((s) => s.data)], wrap);
     plotRef.current = plot;
-
     const ro = new ResizeObserver(() => {
       plot.setSize({ width: wrap.clientWidth || 600, height });
     });
     ro.observe(wrap);
-    roRef.current = ro;
-
     return () => {
       ro.disconnect();
       plot.destroy();
       plotRef.current = null;
     };
-    // Rebuild on theme (colors), series count/labels, height, title.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, height, title, series.map((s) => s.label + s.color).join("|")]);
+  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|")]);
 
-  // Fast path: update data without rebuilding when only values change.
   useEffect(() => {
-    const plot = plotRef.current;
-    if (!plot) return;
-    const data: uPlot.AlignedData = [x, ...series.map((s) => s.data)];
-    plot.setData(data);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    plotRef.current?.setData([x, ...series.map((s) => s.data)]);
   }, [x, series]);
 
-  return <div ref={wrapRef} style={{ width: "100%" }} />;
+  const n = x.length;
+  const idx = hoverIdx != null && hoverIdx < n ? hoverIdx : n - 1;
+
+  return (
+    <div>
+      <div className="chart-head">
+        {title && <span className="t">{title}</span>}
+        {series.map((s, i) => {
+          const v = idx >= 0 ? s.data[idx] : undefined;
+          return (
+            <span className="legend" key={s.label}>
+              <i style={{ background: colors[i] }} />
+              {s.label}
+              <b>{v == null ? "–" : fmt(v)}</b>
+            </span>
+          );
+        })}
+        {hoverIdx != null && n > 0 && (
+          <span className="faint mono" style={{ marginLeft: "auto" }}>
+            t = {fmtSeconds(x[idx])}
+          </span>
+        )}
+      </div>
+      <div className="chart-box">
+        <div ref={wrapRef} style={{ width: "100%" }} />
+        {n === 0 && <div className="chart-empty">{emptyText}</div>}
+      </div>
+    </div>
+  );
 }

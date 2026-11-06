@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { useLive } from "../state/LiveProvider";
 import type { Profile } from "../api/types";
-import { Modal } from "../components/Modal";
-import { fmtTime } from "../format";
+import { ConfirmDialog } from "../components/Modal";
+import { Empty, PageHeader } from "../components/PageHeader";
+import { Icon } from "../components/Icon";
+import { RunProfileDialog } from "../components/RunProfileDialog";
+import { profileSeconds, workloadLabel } from "../domain";
+import { fmtDateTime, fmtDuration, fmtRelative } from "../format";
 
 export function Profiles() {
   const nav = useNavigate();
@@ -12,176 +16,183 @@ export function Profiles() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Fire dialog state
-  const [fireProfile, setFireProfile] = useState<Profile | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [firing, setFiring] = useState(false);
-  const [fireErr, setFireErr] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [fire, setFire] = useState<Profile | null>(null);
+  const [del, setDel] = useState<Profile | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = () =>
     api
       .profiles()
       .then((p) => setProfiles(p ?? []))
-      .catch((e) => setErr(String(e)))
+      .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
 
   useEffect(() => {
     load();
   }, []);
 
-  async function remove(id: string) {
-    if (!confirm("Profil wirklich löschen?")) return;
+  const shown = useMemo(
+    () =>
+      profiles.filter((p) => (p.name + " " + p.description).toLowerCase().includes(q.trim().toLowerCase())),
+    [profiles, q],
+  );
+  const onlineHosts = agents.filter((a) => a.status !== "offline" && a.capabilities.fio).length;
+
+  async function remove() {
+    if (!del) return;
+    setBusy(true);
     try {
-      await api.deleteProfile(id);
-      load();
+      await api.deleteProfile(del.id);
+      setDel(null);
+      await load();
     } catch (e) {
-      setErr(String(e));
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  function openFire(p: Profile) {
-    setFireProfile(p);
-    setFireErr(null);
-    setSelected(new Set(agents.filter((a) => a.status === "online").map((a) => a.agentId)));
-  }
-
-  async function fire() {
-    if (!fireProfile || selected.size === 0) return;
-    setFiring(true);
-    setFireErr(null);
+  async function duplicate(p: Profile) {
     try {
-      const { batchId } = await api.startBatch({
-        profileId: fireProfile.id,
-        agentIds: [...selected],
+      const created = await api.createProfile({
+        name: `${p.name} (Kopie)`,
+        description: p.description,
+        steps: p.steps,
       });
-      setFireProfile(null);
-      nav(`/batches/${batchId}`);
+      nav(`/profiles/${created.id}`);
     } catch (e) {
-      setFireErr(String(e));
-      setFiring(false);
+      setErr(e instanceof Error ? e.message : String(e));
     }
   }
-
-  const toggle = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
 
   return (
-    <div>
-      <div className="section-head">
-        <h2>Test-Profile</h2>
-        <Link className="btn" to="/profiles/new">
-          + Neues Profil
-        </Link>
-      </div>
-      <p className="muted" style={{ marginTop: -6, marginBottom: 18 }}>
-        Ein Profil bündelt mehrere Tests. Du kannst es gegen einen oder mehrere
-        Hosts abfeuern – die Schritte laufen nacheinander, pro Schritt alle Hosts
-        gleichzeitig.
-      </p>
+    <div className="stack">
+      <PageHeader
+        title="Profile"
+        meta={
+          <span>
+            Ein Profil ist eine Folge von fio-Messungen. Beim Ausführen laufen die Schritte nacheinander, jeder
+            Schritt gleichzeitig auf allen gewählten Hosts.
+          </span>
+        }
+        actions={
+          <Link className="btn" to="/profiles/new">
+            <Icon name="plus" /> Neues Profil
+          </Link>
+        }
+      />
 
-      {err && <div className="error">{err}</div>}
-
-      {loading ? (
-        <div className="card empty">Lädt…</div>
-      ) : profiles.length === 0 ? (
-        <div className="card empty">
-          Noch keine Profile. Lege dein erstes Profil an.
-        </div>
-      ) : (
-        <div className="grid cols-2">
-          {profiles.map((p) => (
-            <div className="card" key={p.id}>
-              <div className="toolbar" style={{ alignItems: "start" }}>
-                <div>
-                  <div style={{ fontWeight: 650, fontSize: 15 }}>{p.name}</div>
-                  <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
-                    {p.steps.length} Schritt(e) · aktualisiert {fmtTime(p.updatedAt)}
-                  </div>
-                </div>
-                <div className="spacer" />
-                <span className="badge accent">{p.steps.length} ×</span>
-              </div>
-
-              {p.description && (
-                <p className="muted" style={{ fontSize: 13, margin: "10px 0 0" }}>
-                  {p.description}
-                </p>
-              )}
-
-              <div className="chiprow" style={{ marginTop: 12 }}>
-                {p.steps.slice(0, 5).map((s, i) => (
-                  <span className="badge" key={i}>
-                    {s.spec.workload} · {s.spec.blockSize}
-                  </span>
-                ))}
-                {p.steps.length > 5 && (
-                  <span className="badge">+{p.steps.length - 5}</span>
-                )}
-              </div>
-
-              <div className="toolbar" style={{ marginTop: 16 }}>
-                <button className="btn sm" onClick={() => openFire(p)}>
-                  ▶ Ausführen
-                </button>
-                <Link className="btn sm secondary" to={`/profiles/${p.id}`}>
-                  Bearbeiten
-                </Link>
-                <div className="spacer" />
-                <button className="btn sm ghost" onClick={() => remove(p.id)}>
-                  Löschen
-                </button>
-              </div>
-            </div>
-          ))}
+      {err && (
+        <div className="callout err">
+          <Icon name="alert" />
+          <div className="body">{err}</div>
         </div>
       )}
 
-      {fireProfile && (
-        <Modal
-          title={`"${fireProfile.name}" ausführen`}
-          onClose={() => setFireProfile(null)}
-          footer={
-            <>
-              <button className="btn secondary" onClick={() => setFireProfile(null)}>
-                Abbrechen
-              </button>
-              <button
-                className="btn"
-                disabled={selected.size === 0 || firing}
-                onClick={fire}
-              >
-                {firing ? "Starte…" : `Auf ${selected.size} Host(s) starten`}
-              </button>
-            </>
-          }
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Alle Profile</h2>
+          <span className="sub">{profiles.length}</span>
+          <div className="actions">
+            <div className="search">
+              <Icon name="search" size={14} />
+              <input placeholder="Profil suchen…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="empty">Lädt…</div>
+        ) : profiles.length === 0 ? (
+          <Empty
+            title="Noch keine Profile"
+            action={
+              <Link className="btn" to="/profiles/new">
+                <Icon name="plus" /> Erstes Profil anlegen
+              </Link>
+            }
+          >
+            Lege fest, welche Lastmuster gemessen werden sollen, z. B. 4K Random Read und 1M sequenziell.
+          </Empty>
+        ) : shown.length === 0 ? (
+          <Empty title="Kein Treffer" compact>
+            Kein Profil passt zu „{q}“.
+          </Empty>
+        ) : (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Profil</th>
+                  <th>Ablauf</th>
+                  <th className="num">Dauer</th>
+                  <th>Geändert</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((p) => (
+                  <tr key={p.id} className="click" onClick={() => nav(`/profiles/${p.id}`)}>
+                    <td style={{ minWidth: 200 }}>
+                      <div className="cell-title">{p.name}</div>
+                      {p.description && <div className="cell-sub">{p.description}</div>}
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+                        {p.steps.slice(0, 4).map((s, i) => (
+                          <span className="tag" key={i} title={s.spec.name}>
+                            {workloadLabel(s.spec)} · {s.spec.blockSize}
+                          </span>
+                        ))}
+                        {p.steps.length > 4 && <span className="tag">+{p.steps.length - 4} weitere</span>}
+                      </div>
+                    </td>
+                    <td className="num">{fmtDuration(profileSeconds(p.steps))}</td>
+                    <td className="muted when" title={fmtDateTime(p.updatedAt)}>
+                      {fmtRelative(p.updatedAt)}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()} style={{ width: 1 }}>
+                      <div className="row" style={{ gap: 4, justifyContent: "flex-end" }}>
+                        <button
+                          className="btn secondary sm"
+                          onClick={() => setFire(p)}
+                          disabled={onlineHosts === 0}
+                          title={onlineHosts === 0 ? "Kein ausführbarer Host online" : "Profil ausführen"}
+                        >
+                          <Icon name="play" size={12} /> Ausführen
+                        </button>
+                        <button className="btn ghost icon sm" onClick={() => nav(`/profiles/${p.id}`)} title="Bearbeiten">
+                          <Icon name="edit" />
+                        </button>
+                        <button className="btn ghost icon sm" onClick={() => duplicate(p)} title="Duplizieren">
+                          <Icon name="copy" />
+                        </button>
+                        <button className="btn ghost icon sm" onClick={() => setDel(p)} title="Löschen">
+                          <Icon name="trash" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {fire && <RunProfileDialog profile={fire} onClose={() => setFire(null)} />}
+      {del && (
+        <ConfirmDialog
+          title="Profil löschen?"
+          confirmLabel="Endgültig löschen"
+          danger
+          busy={busy}
+          onCancel={() => setDel(null)}
+          onConfirm={remove}
         >
-          <p className="muted" style={{ marginTop: 0 }}>
-            Ziel-Hosts auswählen. Die {fireProfile.steps.length} Schritte laufen
-            nacheinander, pro Schritt gleichzeitig auf allen gewählten Hosts.
-          </p>
-          {agents.length === 0 && <div className="empty">Keine Hosts verbunden.</div>}
-          {agents.map((a) => (
-            <label className="checkbox" key={a.agentId} style={{ padding: "6px 0" }}>
-              <input
-                type="checkbox"
-                checked={selected.has(a.agentId)}
-                onChange={() => toggle(a.agentId)}
-                disabled={a.status === "offline"}
-              />
-              {a.system.hostname}
-              <span className="faint" style={{ fontSize: 12 }}>
-                ({a.status}
-                {a.capabilities.fio ? "" : ", kein fio"})
-              </span>
-            </label>
-          ))}
-          {fireErr && <div className="error" style={{ marginTop: 10 }}>{fireErr}</div>}
-        </Modal>
+          „{del.name}“ wird gelöscht. Bereits gemessene Ergebnisse bleiben erhalten.
+        </ConfirmDialog>
       )}
     </div>
   );
