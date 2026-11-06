@@ -41,6 +41,19 @@ type Agent struct {
 
 	// LogLevel is one of debug|info|warn|error.
 	LogLevel string `json:"logLevel"`
+
+	// --- Fault injection (resilience testing) ---
+
+	// BrokerSocket is the Unix socket of the local privilege-broker. When empty,
+	// fault injection is disabled on this agent (the agent never performs
+	// privileged actions itself). Example: "/run/storagebench/broker.sock".
+	BrokerSocket string `json:"brokerSocket"`
+
+	// FaultIfaceAllowlist optionally restricts which interfaces may receive a
+	// fault. When non-empty, only these interfaces are allowed. The management
+	// interface carrying the controller connection is ALWAYS excluded regardless
+	// of this list, so a fault can never cut the agent off from the controller.
+	FaultIfaceAllowlist []string `json:"faultIfaceAllowlist"`
 }
 
 // DefaultAgent returns an Agent populated with safe defaults.

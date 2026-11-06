@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/storagebench/storagebench/internal/clock"
+	"github.com/storagebench/storagebench/internal/fault"
 	"github.com/storagebench/storagebench/internal/protocol"
 	"github.com/storagebench/storagebench/internal/wsconn"
 )
@@ -167,9 +169,16 @@ func (s *session) readLoop(ctx context.Context) error {
 				s.a.log.Warn("bad abort", "err", err)
 				break
 			}
+			// Abort cleans up the benchmark and reverts any faults this agent
+			// applied, so an aborted run never leaves a host degraded.
+			s.a.faultCtl.RevertAll("run aborted")
 			if err := s.a.testCtl.Abort(ab.RunID, ab.Reason); err != nil {
 				s.a.log.Warn("abort failed", "run", ab.RunID, "err", err)
 			}
+		case protocol.TypeInjectFault:
+			s.handleInjectFault(env)
+		case protocol.TypeRevertFault:
+			s.handleRevertFault(env)
 		default:
 			s.a.log.Debug("unhandled control frame", "type", env.Type)
 		}
@@ -199,6 +208,59 @@ func (s *session) telemetryLoop(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// handleInjectFault applies a network fault via the fault controller (broker) and
+// reports a correlated event back to the controller.
+func (s *session) handleInjectFault(env protocol.Envelope) {
+	var inj protocol.InjectFault
+	if err := env.Decode(&inj); err != nil {
+		s.a.log.Warn("bad inject_fault", "err", err)
+		return
+	}
+	var spec fault.Spec
+	if err := json.Unmarshal(inj.Spec, &spec); err != nil {
+		s.reportFaultEvent(inj.RunID, protocol.SeverityError, "fault", fmt.Sprintf("invalid fault spec: %v", err))
+		return
+	}
+	ttl := inj.TTLSeconds
+	if ttl <= 0 {
+		ttl = 3600 // safety default: 1h watchdog
+	}
+	if err := s.a.faultCtl.Apply(spec, ttl, inj.RunID); err != nil {
+		s.a.log.Warn("inject fault failed", "run", inj.RunID, "err", err)
+		s.reportFaultEvent(inj.RunID, protocol.SeverityError, "fault", "fault inject failed: "+err.Error())
+		return
+	}
+	s.reportFaultEvent(inj.RunID, protocol.SeverityWarn, "fault", "fault injected: "+spec.Describe())
+}
+
+// handleRevertFault removes a previously injected fault and reports an event.
+func (s *session) handleRevertFault(env protocol.Envelope) {
+	var rev protocol.RevertFault
+	if err := env.Decode(&rev); err != nil {
+		s.a.log.Warn("bad revert_fault", "err", err)
+		return
+	}
+	if err := s.a.faultCtl.Revert(rev.Iface, rev.RunID); err != nil {
+		s.a.log.Warn("revert fault failed", "run", rev.RunID, "err", err)
+		s.reportFaultEvent(rev.RunID, protocol.SeverityError, "fault", "fault revert failed: "+err.Error())
+		return
+	}
+	s.reportFaultEvent(rev.RunID, protocol.SeverityInfo, "fault", "fault reverted on "+rev.Iface)
+}
+
+// reportFaultEvent emits a fault-related event on the telemetry channel so it is
+// correlated with metric samples on the shared timeline.
+func (s *session) reportFaultEvent(runID string, sev protocol.EventSeverity, src, msg string) {
+	s.ReportEvent(protocol.Event{
+		RunID:       runID,
+		TSWallMilli: clock.NowWallMilli(),
+		MonoNanos:   clock.MonoNanos(),
+		Severity:    sev,
+		Source:      src,
+		Message:     msg,
+	})
 }
 
 func (s *session) enqueueControl(t protocol.MessageType, payload any) {

@@ -51,6 +51,11 @@ type Agent struct {
 	// testCtl owns the fio benchmark lifecycle for this agent. Its Reporter is
 	// set per-connection so results route to the active session.
 	testCtl *TestController
+
+	// faultCtl authorizes and delegates network-fault injection to the local
+	// privilege-broker. Nil-safe: when the broker is not configured it reports
+	// disabled and refuses faults.
+	faultCtl *FaultController
 }
 
 // New constructs an Agent, probing system info and capabilities once at startup.
@@ -68,14 +73,20 @@ func New(cfg config.Agent, log *slog.Logger) *Agent {
 	}
 
 	sampler := NewSampler(time.Duration(cfg.SampleIntervalMS) * time.Millisecond)
+	faultCtl := NewFaultController(log.With("agent", id), cfg.BrokerSocket, cfg.FaultIfaceAllowlist)
+	// Advertise the fault-injection capability only when the broker is reachable.
+	if faultCtl.Enabled() {
+		caps.FaultInjection = true
+	}
 	a := &Agent{
-		cfg:     cfg,
-		log:     log.With("agent", id),
-		id:      id,
-		caps:    caps,
-		sys:     sys,
-		sampler: sampler,
-		testCtl: NewTestController(log.With("agent", id), sampler, cfg.SpoolDir, "fio"),
+		cfg:      cfg,
+		log:      log.With("agent", id),
+		id:       id,
+		caps:     caps,
+		sys:      sys,
+		sampler:  sampler,
+		testCtl:  NewTestController(log.With("agent", id), sampler, cfg.SpoolDir, "fio"),
+		faultCtl: faultCtl,
 	}
 	return a
 }
@@ -159,6 +170,22 @@ func (a *Agent) connectOnce(ctx context.Context) error {
 	}
 	conn := wsconn.New(ws)
 	defer func() { _ = conn.Close("bye") }()
+
+	// Determine which interface carries this controller connection and protect it
+	// from faults. Best-effort: if detection fails, the fault controller refuses
+	// faults (unknown management interface) rather than risk cutting us off.
+	if a.faultCtl.Enabled() {
+		if iface, derr := managementIface(a.cfg.ControllerURL); derr == nil {
+			a.faultCtl.SetManagementIface(iface)
+		} else {
+			a.log.Warn("could not determine management interface; faults will be refused", "err", derr)
+			a.faultCtl.SetManagementIface("")
+		}
+	}
+	// On disconnect, revert any faults this agent applied. A controller
+	// disconnect must not leave a host degraded; the broker's watchdog is the
+	// second safety net if this path is missed.
+	defer a.faultCtl.RevertAll("connection ended")
 
 	session := newSession(a, conn)
 	return session.run(ctx)

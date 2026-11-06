@@ -69,6 +69,11 @@ const (
 	// TypeAbort requests an immediate abort plus cleanup (kill processes,
 	// revert any faults).
 	TypeAbort MessageType = "abort"
+	// TypeInjectFault asks the agent to apply a network fault (via its local
+	// privilege-broker) for the duration of a run.
+	TypeInjectFault MessageType = "inject_fault"
+	// TypeRevertFault asks the agent to remove a previously injected fault.
+	TypeRevertFault MessageType = "revert_fault"
 
 	// --- Telemetry channel: agent -> controller ---
 
@@ -103,6 +108,9 @@ type Capabilities struct {
 	Multipath    bool   `json:"multipath"`
 	DeviceMapper bool   `json:"deviceMapper"`
 	Tc           bool   `json:"tc"`
+	// FaultInjection is true when a reachable privilege-broker is configured, so
+	// the controller/UI can offer network-fault injection for this host.
+	FaultInjection bool `json:"faultInjection"`
 	Smartctl     bool   `json:"smartctl"`
 	Nvme         bool   `json:"nvme"`
 	IoStat       bool   `json:"iostat"`
@@ -234,6 +242,24 @@ type Stop struct {
 type Abort struct {
 	RunID  string `json:"runId"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// InjectFault asks the agent to apply a network fault via its privilege-broker.
+// Spec is the raw JSON of a fault.Spec (kept raw so protocol does not depend on
+// the fault package). TTLSeconds bounds how long the broker keeps the fault
+// without an explicit revert before its watchdog removes it.
+type InjectFault struct {
+	RunID      string          `json:"runId"`
+	FaultID    string          `json:"faultId"`
+	Spec       json.RawMessage `json:"spec"`
+	TTLSeconds int             `json:"ttlSeconds"`
+}
+
+// RevertFault asks the agent to remove a fault on an interface.
+type RevertFault struct {
+	RunID   string `json:"runId"`
+	FaultID string `json:"faultId,omitempty"`
+	Iface   string `json:"iface"`
 }
 
 // MetricSample is one time-stamped observation on a single host. All rate
