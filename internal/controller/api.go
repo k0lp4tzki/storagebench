@@ -58,7 +58,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agents", s.handleAgents)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
 	mux.HandleFunc("/api/runs", s.handleRuns)
-	mux.HandleFunc("/api/runs/", s.handleRunDetail) // /api/runs/{id}[/metrics|/events|/stop|/abort]
+	mux.HandleFunc("/api/runs/", s.handleRunDetail) // /api/runs/{id}[/metrics|/events|/stop|/abort|/export.csv|/faults]
+
+	// Cross-run comparison and its CSV export.
+	mux.HandleFunc("/api/compare", s.handleCompare)               // GET ?runs=id1,id2,...
+	mux.HandleFunc("/api/compare/export.csv", s.compareExportCSV) // GET ?runs=id1,id2,...
 
 	// Profiles (named collections of test steps) and batch execution.
 	mux.HandleFunc("/api/profiles", s.handleProfiles)   // GET list, POST create

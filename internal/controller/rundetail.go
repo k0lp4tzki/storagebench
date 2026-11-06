@@ -61,6 +61,12 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 		s.runStop(w, runID, true)
 	case "faults", "faults/revert":
 		s.handleRunFaults(w, r, runID, sub)
+	case "export.csv":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, "GET")
+			return
+		}
+		s.runExportCSV(w, runID)
 	default:
 		http.NotFound(w, r)
 	}
