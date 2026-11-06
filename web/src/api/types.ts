@@ -123,6 +123,9 @@ export interface FaultRecord {
   detail: string;
   tsInjectMilli: number;
   tsRevertMilli: number;
+  // Watchdog TTL at inject time (seconds); 0 = none/unknown. Used for a live
+  // countdown and to treat the fault as auto-expired once it elapses.
+  ttlSeconds: number;
 }
 
 export interface InjectFaultRequest {

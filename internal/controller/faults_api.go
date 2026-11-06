@@ -90,9 +90,16 @@ func (s *Server) injectFault(w http.ResponseWriter, r *http.Request, runID strin
 	// Record the inject on the run timeline. The agent also emits a correlated
 	// event; this row drives the chart markers and revert pairing.
 	if _, err := s.store.RecordFaultInject(runID, faultID, req.AgentID,
-		string(req.Spec.Kind), req.Spec.Iface, req.Spec.Describe(), time.Now().UTC().UnixMilli()); err != nil {
+		string(req.Spec.Kind), req.Spec.Iface, req.Spec.Describe(), time.Now().UTC().UnixMilli(), ttl); err != nil {
 		s.log.Warn("record fault inject failed", "run", runID, "err", err)
 	}
+
+	// Authoritative expiry: when the watchdog TTL elapses the broker and agent
+	// auto-revert locally, but those reverts do not round-trip through the
+	// controller. Schedule a matching stamp so the UI reliably shows the fault as
+	// finished at the right time (no-op if an explicit revert already stamped it).
+	s.scheduleFaultExpiry(runID, req.Spec.Iface, ttl)
+
 	writeJSON(w, http.StatusAccepted, map[string]string{"faultId": faultID, "status": "injected"})
 }
 
@@ -120,6 +127,22 @@ func (s *Server) revertFault(w http.ResponseWriter, r *http.Request, runID strin
 		s.log.Warn("record fault revert failed", "run", runID, "err", err)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "reverted"})
+}
+
+// scheduleFaultExpiry stamps the fault's revert time once its TTL elapses. This
+// mirrors the broker/agent watchdog auto-revert (which happens locally and does
+// not notify the controller) so the UI shows the fault as finished on time. It is
+// best-effort and idempotent: RecordFaultRevert only stamps a still-active fault,
+// so an explicit revert that already happened makes this a no-op.
+func (s *Server) scheduleFaultExpiry(runID, iface string, ttlSeconds int) {
+	if ttlSeconds <= 0 {
+		return
+	}
+	time.AfterFunc(time.Duration(ttlSeconds)*time.Second, func() {
+		if err := s.store.RecordFaultRevert(runID, iface, time.Now().UTC().UnixMilli()); err != nil {
+			s.log.Warn("fault expiry stamp failed", "run", runID, "iface", iface, "err", err)
+		}
+	})
 }
 
 // agentSupportsFaults reports whether the given agent advertises fault injection.

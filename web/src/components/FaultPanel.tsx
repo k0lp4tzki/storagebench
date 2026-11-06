@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { AgentView, FaultKind, FaultRecord, FaultSpec, RunNodeDetail } from "../api/types";
 import { Icon } from "./Icon";
@@ -10,6 +10,15 @@ const KIND_LABEL: Record<FaultKind, string> = {
   bandwidth: "Bandbreitenlimit",
   partition: "Partition (Verbindung kappen)",
 };
+
+// fmtCountdown renders remaining milliseconds as mm:ss (or ss s under a minute).
+function fmtCountdown(ms: number): string {
+  const total = Math.ceil(ms / 1000);
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
 
 interface Props {
   runId: string;
@@ -27,6 +36,28 @@ export function FaultPanel({ runId, nodes, agents, faults, onChanged }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const active = faults.filter((f) => f.tsRevertMilli === 0);
+  const done = faults.filter((f) => f.tsRevertMilli > 0);
+
+  // Tick every second while a fault is active so the countdown stays live. When
+  // a TTL elapses we refresh so the controller's expiry stamp is picked up and
+  // the fault moves to "finished".
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (active.length === 0) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [active.length]);
+  useEffect(() => {
+    // When any active fault's TTL has elapsed, pull fresh data (the controller
+    // stamps ts_revert at expiry) so the UI reflects the finished state.
+    const expired = active.some(
+      (f) => f.ttlSeconds > 0 && now >= f.tsInjectMilli + f.ttlSeconds * 1000 + 1500,
+    );
+    if (expired) onChanged();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now]);
+
   // Hosts eligible for faults: in this run AND fault-injection capable + online.
   const capable = useMemo(() => {
     const byId = new Map(agents.map((a) => [a.agentId, a]));
@@ -35,8 +66,6 @@ export function FaultPanel({ runId, nodes, agents, faults, onChanged }: Props) {
       return a?.capabilities.faultInjection && a.connected;
     });
   }, [nodes, agents]);
-
-  const active = faults.filter((f) => f.tsRevertMilli === 0);
 
   async function revert(f: FaultRecord) {
     setBusy(true);
@@ -94,27 +123,77 @@ export function FaultPanel({ runId, nodes, agents, faults, onChanged }: Props) {
                   <th>Host</th>
                   <th>Störung</th>
                   <th>Interface</th>
+                  <th>Verbleibend</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {active.map((f) => (
-                  <tr key={f.id}>
-                    <td className="cell-title">{hostName(f.agentId)}</td>
-                    <td>
-                      <span className="badge warn">{f.detail || f.kind}</span>
-                    </td>
-                    <td className="mono">{f.iface}</td>
-                    <td className="num">
-                      <button className="btn ghost sm" disabled={busy} onClick={() => revert(f)}>
-                        Zurücknehmen
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {active.map((f) => {
+                  const remainMs =
+                    f.ttlSeconds > 0 ? f.tsInjectMilli + f.ttlSeconds * 1000 - now : -1;
+                  return (
+                    <tr key={f.id}>
+                      <td className="cell-title">{hostName(f.agentId)}</td>
+                      <td>
+                        <span className="badge warn">{f.detail || f.kind}</span>
+                      </td>
+                      <td className="mono">{f.iface}</td>
+                      <td className="mono">
+                        {f.ttlSeconds <= 0 ? (
+                          <span className="faint">kein TTL</span>
+                        ) : remainMs > 0 ? (
+                          fmtCountdown(remainMs)
+                        ) : (
+                          <span className="faint">läuft aus…</span>
+                        )}
+                      </td>
+                      <td className="num">
+                        <button className="btn ghost sm" disabled={busy} onClick={() => revert(f)}>
+                          Zurücknehmen
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+        )}
+
+        {done.length > 0 && (
+          <details>
+            <summary className="faint" style={{ cursor: "pointer", fontSize: 13 }}>
+              Abgeschlossene Störungen ({done.length})
+            </summary>
+            <div className="table-wrap" style={{ marginTop: 8 }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Host</th>
+                    <th>Störung</th>
+                    <th>Interface</th>
+                    <th>Dauer</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {done.map((f) => (
+                    <tr key={f.id}>
+                      <td className="cell-title">{hostName(f.agentId)}</td>
+                      <td>{f.detail || f.kind}</td>
+                      <td className="mono">{f.iface}</td>
+                      <td className="mono">
+                        {fmtCountdown(Math.max(0, f.tsRevertMilli - f.tsInjectMilli))}
+                      </td>
+                      <td>
+                        <span className="badge ok">abgeschlossen</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         )}
       </div>
 

@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS fault_action (
 	detail       TEXT NOT NULL DEFAULT '',
 	ts_inject    INTEGER NOT NULL DEFAULT 0,
 	ts_revert    INTEGER NOT NULL DEFAULT 0,
+	ttl_seconds  INTEGER NOT NULL DEFAULT 0,    -- watchdog TTL; 0 = none/unknown
 	FOREIGN KEY (run_id) REFERENCES test_run(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_fault_run ON fault_action(run_id, ts_inject);

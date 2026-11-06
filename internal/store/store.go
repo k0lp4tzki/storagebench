@@ -85,6 +85,7 @@ func (s *Store) migrate() error {
 	addColumns := []string{
 		`ALTER TABLE test_run ADD COLUMN batch_id TEXT`,
 		`ALTER TABLE test_run ADD COLUMN batch_step INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE fault_action ADD COLUMN ttl_seconds INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range addColumns {
 		if _, err := s.db.Exec(stmt); err != nil {

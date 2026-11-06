@@ -15,18 +15,21 @@ type FaultRecord struct {
 	Detail        string `json:"detail"`
 	TSInjectMilli int64  `json:"tsInjectMilli"`
 	TSRevertMilli int64  `json:"tsRevertMilli"`
+	// TTLSeconds is the watchdog TTL at inject time; 0 means none/unknown. The UI
+	// uses it to show a live countdown and to treat a fault as auto-expired.
+	TTLSeconds int `json:"ttlSeconds"`
 }
 
 // RecordFaultInject inserts a new fault action with its inject timestamp and
 // returns the row id. faultID is a controller-generated id used to pair the
 // later revert. detail is a human-readable summary (e.g. "Latenz +100ms auf eth1").
-func (s *Store) RecordFaultInject(runID, faultID, agentID, kind, iface, detail string, tsInjectMilli int64) (int64, error) {
+func (s *Store) RecordFaultInject(runID, faultID, agentID, kind, iface, detail string, tsInjectMilli int64, ttlSeconds int) (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`
-		INSERT INTO fault_action (run_id, fault_id, agent_id, kind, iface, detail, ts_inject, ts_revert)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-		runID, faultID, agentID, kind, iface, detail, tsInjectMilli)
+		INSERT INTO fault_action (run_id, fault_id, agent_id, kind, iface, detail, ts_inject, ts_revert, ttl_seconds)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+		runID, faultID, agentID, kind, iface, detail, tsInjectMilli, ttlSeconds)
 	if err != nil {
 		return 0, err
 	}
@@ -52,7 +55,7 @@ func (s *Store) RecordFaultRevert(runID, iface string, tsRevertMilli int64) erro
 // timeline overlay.
 func (s *Store) ListRunFaults(runID string) ([]FaultRecord, error) {
 	rows, err := s.db.Query(`
-		SELECT id, run_id, fault_id, agent_id, kind, iface, detail, ts_inject, ts_revert
+		SELECT id, run_id, fault_id, agent_id, kind, iface, detail, ts_inject, ts_revert, ttl_seconds
 		FROM fault_action
 		WHERE run_id = ?
 		ORDER BY ts_inject`, runID)
@@ -65,7 +68,7 @@ func (s *Store) ListRunFaults(runID string) ([]FaultRecord, error) {
 		var f FaultRecord
 		var faultID, agentID, kind, iface, detail sql.NullString
 		if err := rows.Scan(&f.ID, &f.RunID, &faultID, &agentID, &kind, &iface, &detail,
-			&f.TSInjectMilli, &f.TSRevertMilli); err != nil {
+			&f.TSInjectMilli, &f.TSRevertMilli, &f.TTLSeconds); err != nil {
 			return nil, err
 		}
 		f.FaultID = faultID.String
