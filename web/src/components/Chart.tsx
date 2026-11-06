@@ -37,7 +37,6 @@ export function Chart({ x, series, height = 200, yFormat, title }: Props) {
     const wrap = wrapRef.current;
     if (!wrap) return;
 
-    const axisColor = cssVar("--text-faint") || "#9aa1ab";
     const gridColor = cssVar("--border") || "#e3e6ea";
     const textColor = cssVar("--text-muted") || "#6b7280";
 
