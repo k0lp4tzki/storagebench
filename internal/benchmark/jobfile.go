@@ -97,6 +97,9 @@ func BuildJobfile(s *Spec, workDir string) (RenderedJob, error) {
 	switch s.TargetKind {
 	case TargetFile:
 		writeKV(&b, "size", fmt.Sprintf("%dM", s.FileSizeMiB))
+		// Allow fio to create its own test file if it does not exist yet. This is
+		// required for read-only workloads against a fresh file target.
+		writeKV(&b, "allow_file_create", "1")
 	case TargetDevice:
 		if s.SizeMiB > 0 {
 			writeKV(&b, "size", fmt.Sprintf("%dM", s.SizeMiB))

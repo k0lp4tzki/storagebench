@@ -78,6 +78,45 @@ func TestSpecIsReadOnly(t *testing.T) {
 	}
 }
 
+// The --readonly guard must only apply to read-only workloads on device targets,
+// never on file targets (fio must be able to create its own test file).
+func TestSpecWantsReadonlyGuard(t *testing.T) {
+	// File + read: no guard (fio must create the file).
+	sf := validSpec() // file target, randread
+	if sf.WantsReadonlyGuard() {
+		t.Error("file target read workload should NOT request the --readonly guard")
+	}
+
+	// Device + read: guard on.
+	sd := validSpec()
+	sd.TargetKind = TargetDevice
+	sd.TargetPath = "/dev/sdx"
+	sd.FileSizeMiB = 0
+	if !sd.WantsReadonlyGuard() {
+		t.Error("device target read workload SHOULD request the --readonly guard")
+	}
+
+	// Device + write: no guard.
+	sdw := sd
+	sdw.Workload = WorkloadSeqWrite
+	sdw.AllowDestructive = true
+	if sdw.WantsReadonlyGuard() {
+		t.Error("device target write workload should NOT request the --readonly guard")
+	}
+}
+
+// File targets must allow fio to create the test file.
+func TestBuildJobfileFileTargetAllowsCreate(t *testing.T) {
+	s := validSpec() // file target
+	rendered, err := BuildJobfile(&s, "/tmp/run")
+	if err != nil {
+		t.Fatalf("BuildJobfile: %v", err)
+	}
+	if !strings.Contains(rendered.JobfileContent, "allow_file_create=1") {
+		t.Errorf("file target jobfile should allow file creation:\n%s", rendered.JobfileContent)
+	}
+}
+
 func TestBuildJobfileRejectsRelativeWorkDir(t *testing.T) {
 	s := validSpec()
 	if _, err := BuildJobfile(&s, "relative/dir"); err == nil {

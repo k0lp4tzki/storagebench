@@ -255,8 +255,19 @@ func (s *Spec) NormalizedBlockSize() string {
 	return strings.ToLower(s.BlockSize)
 }
 
-// IsReadOnly reports whether the workload performs no writes. The runner uses
-// this to pass fio's --readonly CLI guard as a safety net for read workloads.
+// IsReadOnly reports whether the workload performs no writes.
 func (s *Spec) IsReadOnly() bool {
 	return !s.Workload.isWrite()
+}
+
+// WantsReadonlyGuard reports whether the runner should pass fio's --readonly CLI
+// flag. It is only applied to device targets with a read-only workload: there it
+// is a valuable safety net against accidental writes to a real block device.
+//
+// It is deliberately NOT applied to file targets, because fio must be able to
+// create/extend its own test file (a write) before a read-only test can run;
+// --readonly would make fio refuse that with "refusing extend of file due to
+// read-only". The test file is private to the agent, so no guard is needed.
+func (s *Spec) WantsReadonlyGuard() bool {
+	return s.IsReadOnly() && s.TargetKind == TargetDevice
 }

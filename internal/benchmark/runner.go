@@ -86,10 +86,11 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 		"--output=" + finalReportPath,
 		fmt.Sprintf("--status-interval=%d", statusIntervalSec),
 	}
-	// Safety net for read workloads: fio's --readonly is a CLI flag (not a
-	// jobfile keyword) that makes fio refuse any write command, guarding against
-	// a misconfiguration issuing writes to the target.
-	if spec.IsReadOnly() {
+	// Safety net for read-only workloads against a real block device: fio's
+	// --readonly is a CLI flag (not a jobfile keyword) that makes fio refuse any
+	// write. It is intentionally not used for file targets, where fio must create
+	// its own test file first.
+	if spec.WantsReadonlyGuard() {
 		args = append(args, "--readonly")
 	}
 	// Live status also comes out as JSON; with --output set to a file, the
