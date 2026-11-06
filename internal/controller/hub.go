@@ -22,13 +22,13 @@ const (
 // AgentView is a snapshot of an agent's state for the API/UI. It is a plain
 // value type so it can be serialized without holding locks.
 type AgentView struct {
-	AgentID      string                 `json:"agentId"`
-	Status       AgentStatus            `json:"status"`
-	Connected    bool                   `json:"connected"`
-	System       protocol.SystemInfo    `json:"system"`
-	Capabilities protocol.Capabilities  `json:"capabilities"`
-	LastSeenMs   int64                  `json:"lastSeenMs"`
-	RTTms        int64                  `json:"rttMs"`
+	AgentID      string                `json:"agentId"`
+	Status       AgentStatus           `json:"status"`
+	Connected    bool                  `json:"connected"`
+	System       protocol.SystemInfo   `json:"system"`
+	Capabilities protocol.Capabilities `json:"capabilities"`
+	LastSeenMs   int64                 `json:"lastSeenMs"`
+	RTTms        int64                 `json:"rttMs"`
 	// ClockOffsetMs is the estimated wall-clock offset (agent - controller),
 	// useful context when correlating timelines across hosts.
 	ClockOffsetMs int64 `json:"clockOffsetMs"`

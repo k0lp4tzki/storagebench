@@ -80,8 +80,8 @@ const (
 // message whose concrete type is determined by Type; decode it with the
 // matching Decode* helper.
 type Envelope struct {
-	Channel Channel         `json:"ch"`
-	Type    MessageType     `json:"type"`
+	Channel Channel     `json:"ch"`
+	Type    MessageType `json:"type"`
 	// TSWallMilli is the sender's wall-clock time (UTC, Unix milliseconds) at
 	// the moment the envelope was produced.
 	TSWallMilli int64           `json:"ts"`
@@ -94,16 +94,16 @@ type Envelope struct {
 // these at startup; the UI hides features a host cannot support rather than
 // letting a user configure something that will fail.
 type Capabilities struct {
-	Fio          bool     `json:"fio"`
-	FioVersion   string   `json:"fioVersion,omitempty"`
-	IoUring      bool     `json:"ioUring"`
-	Libaio       bool     `json:"libaio"`
-	Multipath    bool     `json:"multipath"`
-	DeviceMapper bool     `json:"deviceMapper"`
-	Tc           bool     `json:"tc"`
-	Smartctl     bool     `json:"smartctl"`
-	Nvme         bool     `json:"nvme"`
-	IoStat       bool     `json:"iostat"`
+	Fio          bool   `json:"fio"`
+	FioVersion   string `json:"fioVersion,omitempty"`
+	IoUring      bool   `json:"ioUring"`
+	Libaio       bool   `json:"libaio"`
+	Multipath    bool   `json:"multipath"`
+	DeviceMapper bool   `json:"deviceMapper"`
+	Tc           bool   `json:"tc"`
+	Smartctl     bool   `json:"smartctl"`
+	Nvme         bool   `json:"nvme"`
+	IoStat       bool   `json:"iostat"`
 	// IoEngines lists fio I/O engines detected as available.
 	IoEngines []string `json:"ioEngines,omitempty"`
 }

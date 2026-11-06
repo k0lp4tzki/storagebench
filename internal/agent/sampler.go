@@ -21,10 +21,10 @@ const maxBufferedSamples = 10000
 type Sampler struct {
 	interval time.Duration
 
-	mu       sync.Mutex
-	buf      []protocol.MetricSample
-	seq      uint64 // last assigned batch sequence
-	runID    string // current run id for telemetry association
+	mu        sync.Mutex
+	buf       []protocol.MetricSample
+	seq       uint64 // last assigned batch sequence
+	runID     string // current run id for telemetry association
 	collector metricsCollector
 }
 
