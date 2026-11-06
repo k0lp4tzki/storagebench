@@ -84,6 +84,17 @@ func (s *Store) migrate() error {
 			}
 		}
 	}
+	// Indexes that depend on the additively-added columns must be created only
+	// after the ALTER TABLE statements above, so an upgraded database (whose
+	// test_run predates batch_id) has the column before the index references it.
+	postIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_run_batch ON test_run(batch_id, batch_step)`,
+	}
+	for _, stmt := range postIndexes {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate %q: %w", stmt, err)
+		}
+	}
 	return nil
 }
 

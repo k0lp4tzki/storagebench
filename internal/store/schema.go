@@ -58,7 +58,9 @@ CREATE TABLE IF NOT EXISTS test_run (
 	FOREIGN KEY (profile_id) REFERENCES test_profile(id) ON DELETE SET NULL,
 	FOREIGN KEY (batch_id) REFERENCES test_batch(id) ON DELETE SET NULL
 );
-CREATE INDEX IF NOT EXISTS idx_run_batch ON test_run(batch_id, batch_step);
+-- NOTE: the idx_run_batch index is created in migrate() *after* the additive
+-- ALTER TABLE statements, so that existing databases (whose test_run predates
+-- batch_id) get the column added before the index references it.
 
 -- Per-node participation in a run. Freezes the node's system snapshot so results
 -- remain reproducible even if the node changes later.
