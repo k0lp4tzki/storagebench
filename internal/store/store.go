@@ -67,6 +67,13 @@ func (s *Store) Close() error { return s.db.Close() }
 // migrate creates the schema if it does not exist and applies lightweight
 // column additions for existing databases. It is idempotent.
 func (s *Store) migrate() error {
+	// Pre-schema fixups for tables whose shape changed incompatibly between
+	// versions. These run before the CREATE TABLE IF NOT EXISTS block so the
+	// corrected table is (re)created in its current form.
+	if err := s.dropLegacyTestProfile(); err != nil {
+		return err
+	}
+
 	if _, err := s.db.Exec(schemaSQL); err != nil {
 		return err
 	}
@@ -101,6 +108,65 @@ func (s *Store) migrate() error {
 // isDuplicateColumnErr reports whether err is SQLite's "duplicate column name".
 func isDuplicateColumnErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "duplicate column name")
+}
+
+// tableExists reports whether a table of the given name exists.
+func (s *Store) tableExists(name string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name,
+	).Scan(&n)
+	return n > 0, err
+}
+
+// tableHasColumn reports whether the named table has the given column.
+func (s *Store) tableHasColumn(table, column string) (bool, error) {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid        int
+			name, typ  string
+			notnull    int
+			dfltValue  sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// dropLegacyTestProfile removes a pre-batches test_profile table whose shape is
+// incompatible with the current schema (it used columns like `params` and had no
+// `steps`/`description`). The legacy table never held real profile data, so a
+// rebuild is safe; the current CREATE TABLE statement then recreates it.
+func (s *Store) dropLegacyTestProfile() error {
+	exists, err := s.tableExists("test_profile")
+	if err != nil {
+		return fmt.Errorf("inspect test_profile: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	hasSteps, err := s.tableHasColumn("test_profile", "steps")
+	if err != nil {
+		return fmt.Errorf("inspect test_profile columns: %w", err)
+	}
+	if hasSteps {
+		return nil // already the current shape
+	}
+	if _, err := s.db.Exec(`DROP TABLE test_profile`); err != nil {
+		return fmt.Errorf("drop legacy test_profile: %w", err)
+	}
+	return nil
 }
 
 // --- Node registration ---
