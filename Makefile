@@ -24,7 +24,7 @@ GOARCH ?= amd64
 # The agent has no CGO dependency and is built fully static.
 BIN_DIR := bin
 
-.PHONY: all tidy build build-agent build-controller build-controller-embed web-build test vet fmt clean deps-check
+.PHONY: all tidy build build-agent build-broker build-controller build-controller-embed web-build test vet fmt clean deps-check
 
 all: build
 
@@ -32,14 +32,21 @@ all: build
 tidy:
 	go mod tidy
 
-## build: build both binaries for the target platform
-build: build-agent build-controller
+## build: build all binaries for the target platform
+build: build-agent build-broker build-controller
 
 ## build-agent: static agent binary (no CGO)
 build-agent:
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/storagebench-agent ./cmd/agent
+
+## build-broker: static privilege-broker binary (no CGO). Runs as root on each
+## host and applies/reverts network faults via tc on behalf of the agent.
+build-broker:
+	mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/storagebench-broker ./cmd/broker
 
 ## build-controller: controller binary (CGO on for sqlite3)
 build-controller:
