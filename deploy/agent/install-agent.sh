@@ -158,7 +158,10 @@ create_user_and_dirs() {
     log "Creating system user '${SERVICE_USER}' ..."
     useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
   fi
-  install -d -m 0750 "$CONFIG_DIR"
+  # The config dir must be traversable by the service group so the agent can
+  # read its config file (owned root:storagebench). Group-owned by the service
+  # user, mode 0750: root rwx, group r-x, others none.
+  install -d -m 0750 -o root -g "$SERVICE_USER" "$CONFIG_DIR"
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$(dirname "$SPOOL_DIR")"
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$SPOOL_DIR"
 }
