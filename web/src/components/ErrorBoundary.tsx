@@ -24,8 +24,8 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="card" style={{ margin: 20 }}>
-          <h2>Es ist ein Anzeige-Fehler aufgetreten</h2>
+        <div className="panel panel-body">
+          <h2 style={{ margin: 0, fontSize: 16 }}>Es ist ein Anzeige-Fehler aufgetreten</h2>
           <p className="muted">
             Die Oberfläche hat einen Fehler abgefangen, statt abzustürzen.
           </p>
