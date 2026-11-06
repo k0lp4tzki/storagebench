@@ -76,6 +76,31 @@ func (c *Conn) Close(reason string) error {
 	return c.ws.Close(websocket.StatusNormalClosure, reason)
 }
 
+// RawConn is a thin wrapper that writes arbitrary JSON values (not protocol
+// envelopes). It is used for the browser-facing UI stream, which has its own
+// message shape.
+type RawConn struct {
+	ws *websocket.Conn
+}
+
+// NewRaw wraps a websocket connection for raw JSON writes.
+func NewRaw(ws *websocket.Conn) *RawConn {
+	ws.SetReadLimit(maxMessageBytes)
+	return &RawConn{ws: ws}
+}
+
+// WriteJSON marshals v and sends it as a text frame.
+func (c *RawConn) WriteJSON(ctx context.Context, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if err := c.ws.Write(ctx, websocket.MessageText, b); err != nil {
+		return fmt.Errorf("ws write: %w", err)
+	}
+	return nil
+}
+
 // CloseError closes the connection with an application error status.
 func (c *Conn) CloseError(reason string) error {
 	return c.ws.Close(websocket.StatusInternalError, truncateReason(reason))

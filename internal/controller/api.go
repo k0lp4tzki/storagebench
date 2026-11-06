@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/storagebench/storagebench/internal/config"
@@ -16,16 +17,18 @@ import (
 // http.Handler. Keeping everything in one process (no separate UI server, no
 // message broker) matches the "small, comprehensible stack" requirement.
 type Server struct {
-	cfg   config.Controller
-	hub   *Hub
-	store *store.Store
-	log   *slog.Logger
-	uiFS  fs.FS // optional embedded/served UI assets; may be nil
+	cfg         config.Controller
+	hub         *Hub
+	store       *store.Store
+	broadcaster *Broadcaster
+	log         *slog.Logger
+	uiFS        fs.FS // optional embedded/served UI assets; may be nil
 }
 
-// NewServer constructs the controller server.
-func NewServer(cfg config.Controller, hub *Hub, st *store.Store, log *slog.Logger, uiFS fs.FS) *Server {
-	return &Server{cfg: cfg, hub: hub, store: st, log: log, uiFS: uiFS}
+// NewServer constructs the controller server. broadcaster may be nil (the UI
+// live stream is then unavailable but the rest of the API still works).
+func NewServer(cfg config.Controller, hub *Hub, st *store.Store, broadcaster *Broadcaster, log *slog.Logger, uiFS fs.FS) *Server {
+	return &Server{cfg: cfg, hub: hub, store: st, broadcaster: broadcaster, log: log, uiFS: uiFS}
 }
 
 // Handler builds the HTTP routes.
@@ -37,21 +40,49 @@ func (s *Server) Handler() http.Handler {
 	// Agent WebSocket endpoint (control + telemetry).
 	mux.Handle("/ws/agent", s.hub.AgentWSHandler(s.cfg.AgentToken, heartbeat, s.log))
 
-	// REST API (read-only for the MVP slice; test creation lands next).
+	// Browser live-stream WebSocket (server -> browser push).
+	mux.HandleFunc("/ws/ui", s.handleUIWebSocket)
+
+	// REST API.
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/agents", s.handleAgents)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
 	mux.HandleFunc("/api/runs", s.handleRuns)
+	mux.HandleFunc("/api/runs/", s.handleRunDetail) // /api/runs/{id}[/metrics|/events|/stop|/abort]
 
-	// Static UI, if provided. Falls back to a minimal placeholder page.
+	// Static UI with SPA fallback, if an embedded/served bundle is provided.
 	if s.uiFS != nil {
-		mux.Handle("/", http.FileServer(http.FS(s.uiFS)))
+		mux.Handle("/", s.spaHandler())
 	} else {
 		mux.HandleFunc("/", s.handlePlaceholder)
 	}
 
 	return s.withCommonHeaders(mux)
+}
+
+// spaHandler serves the embedded single-page app. Requests for existing files
+// are served directly; any other path falls back to index.html so client-side
+// routing works on deep links / refresh.
+func (s *Server) spaHandler() http.Handler {
+	fileServer := http.FileServer(http.FS(s.uiFS))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Never fall back for API or WS paths (handled by their own routes, but
+		// guard here for safety).
+		clean := strings.TrimPrefix(r.URL.Path, "/")
+		if clean == "" {
+			clean = "index.html"
+		}
+		if f, err := s.uiFS.Open(clean); err == nil {
+			_ = f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Fallback: serve index.html for SPA routes.
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/"
+		fileServer.ServeHTTP(w, r2)
+	})
 }
 
 // withCommonHeaders adds baseline security headers to every response.

@@ -61,8 +61,12 @@ func run() error {
 	log.Info("database ready", "path", cfg.DBPath)
 
 	heartbeat := time.Duration(cfg.HeartbeatSeconds) * time.Second
-	hub := controller.NewHub(heartbeat, st)
-	srv := controller.NewServer(cfg, hub, st, log, nil)
+	// The broadcaster decorates the store: it persists then fans out live updates
+	// to browser clients. The hub ingests through it so the UI sees real-time
+	// data without extra coupling.
+	broadcaster := controller.NewBroadcaster(st)
+	hub := controller.NewHub(heartbeat, broadcaster)
+	srv := controller.NewServer(cfg, hub, st, broadcaster, log, uiFS())
 
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,

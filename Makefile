@@ -24,7 +24,7 @@ GOARCH ?= amd64
 # The agent has no CGO dependency and is built fully static.
 BIN_DIR := bin
 
-.PHONY: all tidy build build-agent build-controller test vet fmt clean deps-check
+.PHONY: all tidy build build-agent build-controller build-controller-embed web-build test vet fmt clean deps-check
 
 all: build
 
@@ -46,6 +46,19 @@ build-controller:
 	mkdir -p $(BIN_DIR)
 	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/storagebench-controller ./cmd/controller
+
+## web-build: build the frontend bundle into cmd/controller/webdist.
+## Uses `npm ci` when a lockfile exists (reproducible), otherwise `npm install`
+## which also generates package-lock.json.
+web-build:
+	cd web && { [ -f package-lock.json ] && npm ci || npm install; } && npm run build
+
+## build-controller-embed: controller with the built frontend embedded.
+## Run `make web-build` first so cmd/controller/webdist holds the real bundle.
+build-controller-embed:
+	mkdir -p $(BIN_DIR)
+	CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -trimpath -tags embedui -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/storagebench-controller ./cmd/controller
 
 ## test: run unit tests
 test:

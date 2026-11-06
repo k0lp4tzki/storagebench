@@ -12,7 +12,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  # Write is needed so CI can commit a generated web/package-lock.json back on
+  # pushes to main (keeps frontend builds reproducible without a dev machine).
+  contents: write
 
 jobs:
   build:
@@ -27,6 +29,11 @@ jobs:
         with:
           go-version: "1.22"
           cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Resolve dependencies
         run: go mod tidy
@@ -52,8 +59,25 @@ jobs:
             echo "$unformatted"
           fi
 
+      - name: Build frontend
+        run: make web-build
+
+      - name: Commit generated package-lock.json
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if ! git diff --quiet -- web/package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add web/package-lock.json
+            git commit -m "ci: update web/package-lock.json [skip ci]"
+            git push
+          fi
+
       - name: Build (agent + controller)
         run: make build
+
+      - name: Build controller with embedded UI
+        run: make build-controller-embed
 
       - name: Test
         run: go test ./...
