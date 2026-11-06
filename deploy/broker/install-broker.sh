@@ -156,9 +156,14 @@ Type=simple
 # The broker must be root to run tc. This is the only privileged component.
 User=root
 Group=root
-# Create /run/storagebench owned root:storagebench, mode 0750, each start.
+# systemd creates RuntimeDirectory owned by the service user/group (root:root
+# here), mode 0750 -> the agent (group storagebench) would lack the directory
+# traverse (x) bit and cannot reach the socket. Fix it: chgrp the directory to the
+# storagebench group so group members get r-x. The socket itself stays protected
+# at 0660 root:storagebench, so only the broker group can connect.
 RuntimeDirectory=storagebench
 RuntimeDirectoryMode=0750
+ExecStartPre=-/bin/sh -c 'chgrp ${SERVICE_USER} ${RUN_DIR} && chmod 0750 ${RUN_DIR}'
 ExecStart=${PREFIX}/${BINARY_NAME} --socket ${SOCKET_PATH} --group ${SERVICE_USER} --audit ${AUDIT_PATH}
 Restart=always
 RestartSec=3
