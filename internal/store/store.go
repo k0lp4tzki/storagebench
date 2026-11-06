@@ -73,6 +73,9 @@ func (s *Store) migrate() error {
 	if err := s.dropLegacyTestProfile(); err != nil {
 		return err
 	}
+	if err := s.dropLegacyFaultAction(); err != nil {
+		return err
+	}
 
 	if _, err := s.db.Exec(schemaSQL); err != nil {
 		return err
@@ -165,6 +168,31 @@ func (s *Store) dropLegacyTestProfile() error {
 	}
 	if _, err := s.db.Exec(`DROP TABLE test_profile`); err != nil {
 		return fmt.Errorf("drop legacy test_profile: %w", err)
+	}
+	return nil
+}
+
+// dropLegacyFaultAction removes a pre-resilience fault_action table whose shape
+// (type/target/node_id) is incompatible with the current one (kind/iface/
+// fault_id/agent_id). It never held data, so a rebuild is safe; the current
+// CREATE TABLE statement then recreates it.
+func (s *Store) dropLegacyFaultAction() error {
+	exists, err := s.tableExists("fault_action")
+	if err != nil {
+		return fmt.Errorf("inspect fault_action: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	hasKind, err := s.tableHasColumn("fault_action", "kind")
+	if err != nil {
+		return fmt.Errorf("inspect fault_action columns: %w", err)
+	}
+	if hasKind {
+		return nil // already current shape
+	}
+	if _, err := s.db.Exec(`DROP TABLE fault_action`); err != nil {
+		return fmt.Errorf("drop legacy fault_action: %w", err)
 	}
 	return nil
 }

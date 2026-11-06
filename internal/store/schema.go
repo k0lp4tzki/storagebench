@@ -115,17 +115,20 @@ CREATE TABLE IF NOT EXISTS event (
 );
 CREATE INDEX IF NOT EXISTS idx_event_run_node_ts ON event(run_node_id, ts_wall);
 
--- Fault-injection actions, correlated with the run timeline. Populated in the
--- resilience-testing phase; table exists now so the schema is stable.
+-- Fault-injection actions, correlated with the run timeline (resilience phase).
+-- A row is created on inject (ts_revert=0) and stamped with ts_revert when the
+-- fault is removed, so the UI can draw inject/revert markers on the charts.
 CREATE TABLE IF NOT EXISTS fault_action (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
 	run_id       TEXT NOT NULL,
-	node_id      INTEGER,
-	type         TEXT NOT NULL,
-	target       TEXT NOT NULL DEFAULT '',
+	fault_id     TEXT NOT NULL DEFAULT '',
+	agent_id     TEXT NOT NULL DEFAULT '',
+	kind         TEXT NOT NULL DEFAULT '',
+	iface        TEXT NOT NULL DEFAULT '',
+	detail       TEXT NOT NULL DEFAULT '',
 	ts_inject    INTEGER NOT NULL DEFAULT 0,
 	ts_revert    INTEGER NOT NULL DEFAULT 0,
-	detail       TEXT NOT NULL DEFAULT '{}',
 	FOREIGN KEY (run_id) REFERENCES test_run(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_fault_run ON fault_action(run_id, ts_inject);
 `

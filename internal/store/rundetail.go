@@ -15,6 +15,8 @@ type RunDetail struct {
 	EndedAt        string          `json:"endedAt"`
 	ResolvedConfig json.RawMessage `json:"resolvedConfig"`
 	Nodes          []RunNodeDetail `json:"nodes"`
+	// Faults are the fault-injection actions during the run, for the timeline.
+	Faults []FaultRecord `json:"faults"`
 }
 
 // RunNodeDetail is one node's participation in a run, with its frozen system
@@ -64,7 +66,15 @@ func (s *Store) GetRun(runID string) (RunDetail, bool, error) {
 		}
 		d.Nodes = append(d.Nodes, nd)
 	}
-	return d, true, rows.Err()
+	if err := rows.Err(); err != nil {
+		return d, true, err
+	}
+
+	// Attach fault-injection actions for the timeline overlay (best-effort).
+	if faults, ferr := s.ListRunFaults(runID); ferr == nil {
+		d.Faults = faults
+	}
+	return d, true, nil
 }
 
 // GetRunMetrics returns all metric samples for a run, grouped by agent id. This

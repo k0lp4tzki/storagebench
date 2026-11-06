@@ -59,6 +59,8 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.runStop(w, runID, true)
+	case "faults", "faults/revert":
+		s.handleRunFaults(w, r, runID, sub)
 	default:
 		http.NotFound(w, r)
 	}
