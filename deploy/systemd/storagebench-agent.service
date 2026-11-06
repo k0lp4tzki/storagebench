@@ -34,6 +34,10 @@ Wants=network-online.target
 Type=simple
 User=storagebench
 Group=storagebench
+# Join the broker group so the agent can reach the privilege-broker socket
+# (/run/storagebench/broker.sock, 0660 root:storagebench) when fault injection
+# is enabled. Harmless if the broker is not installed.
+SupplementaryGroups=storagebench
 EnvironmentFile=/etc/storagebench/agent.env
 ExecStart=/usr/local/bin/storagebench-agent --config /etc/storagebench/agent.json
 Restart=on-failure

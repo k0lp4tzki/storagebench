@@ -19,13 +19,17 @@
 #
 # Optional flags:
 #   --agent-id NAME        Stable agent id (default: system hostname)
+#   --broker-socket PATH   Enable fault injection via a local privilege-broker
+#                          socket. If omitted, an existing brokerSocket already in
+#                          the config is PRESERVED (re-running never disables it).
 #   --insecure             Skip TLS verification (self-signed wss:// only)
 #   --prefix DIR           Install dir for the binary (default: /usr/local/bin)
 #   --no-deps              Do not install apt packages (assume already present)
 #   --no-build             Use an existing binary from --prefix instead of building
 #
 # Environment variables are also honored:
-#   STORAGEBENCH_CONTROLLER_URL, STORAGEBENCH_AGENT_TOKEN, STORAGEBENCH_AGENT_ID
+#   STORAGEBENCH_CONTROLLER_URL, STORAGEBENCH_AGENT_TOKEN, STORAGEBENCH_AGENT_ID,
+#   STORAGEBENCH_BROKER_SOCKET
 #
 set -euo pipefail
 
@@ -33,6 +37,10 @@ set -euo pipefail
 CONTROLLER_URL="${STORAGEBENCH_CONTROLLER_URL:-}"
 TOKEN="${STORAGEBENCH_AGENT_TOKEN:-}"
 AGENT_ID="${STORAGEBENCH_AGENT_ID:-}"
+# Optional: path to the local privilege-broker socket (enables fault injection).
+# If left empty, an existing brokerSocket already in the config is PRESERVED, so
+# re-running this installer never silently disables fault injection.
+BROKER_SOCKET="${STORAGEBENCH_BROKER_SOCKET:-}"
 INSECURE="false"
 PREFIX="/usr/local/bin"
 INSTALL_DEPS="true"
@@ -60,10 +68,11 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd)"
 # ---- argument parsing -----------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --controller) CONTROLLER_URL="$2"; shift 2 ;;
-    --token)      TOKEN="$2"; shift 2 ;;
-    --agent-id)   AGENT_ID="$2"; shift 2 ;;
-    --insecure)   INSECURE="true"; shift ;;
+    --controller)    CONTROLLER_URL="$2"; shift 2 ;;
+    --token)         TOKEN="$2"; shift 2 ;;
+    --agent-id)      AGENT_ID="$2"; shift 2 ;;
+    --broker-socket) BROKER_SOCKET="$2"; shift 2 ;;
+    --insecure)      INSECURE="true"; shift ;;
     --prefix)     PREFIX="$2"; shift 2 ;;
     --no-deps)    INSTALL_DEPS="false"; shift ;;
     --no-build)   DO_BUILD="false"; shift ;;
@@ -167,11 +176,24 @@ create_user_and_dirs() {
 }
 
 write_config() {
+  # Preserve an existing brokerSocket across re-runs so this installer never
+  # silently disables fault injection. Precedence: explicit --broker-socket flag,
+  # else the value already present in the config, else none.
+  local broker="$BROKER_SOCKET"
+  if [[ -z "$broker" && -f "$CONFIG_FILE" ]]; then
+    broker="$(sed -n 's/.*"brokerSocket"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" | head -n1)"
+    [[ -n "$broker" ]] && log "Preserving existing brokerSocket: ${broker}"
+  fi
+  local broker_line=""
+  if [[ -n "$broker" ]]; then
+    broker_line="  \"brokerSocket\": \"${broker}\","$'\n'
+  fi
+
   log "Writing config ${CONFIG_FILE} (token kept out of this file) ..."
   # Non-secret config on disk; the token is provided via the env file (0600).
   cat > "$CONFIG_FILE" <<JSON
 {
-  "controllerUrl": "${CONTROLLER_URL}",
+${broker_line}  "controllerUrl": "${CONTROLLER_URL}",
   "agentId": "${AGENT_ID}",
   "insecureSkipVerify": ${INSECURE},
   "spoolDir": "${SPOOL_DIR}",
@@ -183,6 +205,11 @@ write_config() {
 JSON
   chmod 0640 "$CONFIG_FILE"
   chown root:"$SERVICE_USER" "$CONFIG_FILE"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "import json,sys;json.load(open('${CONFIG_FILE}'))" \
+      && log "Agent config is valid JSON." \
+      || die "generated agent config is not valid JSON: ${CONFIG_FILE}"
+  fi
 
   log "Writing secret env file ${ENV_FILE} (0600) ..."
   umask 077
@@ -208,6 +235,10 @@ Wants=network-online.target
 Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
+# Join the broker group so the agent can reach the privilege-broker socket
+# (/run/storagebench/broker.sock, mode 0660 root:storagebench) when fault
+# injection is enabled. Harmless if the broker is not installed.
+SupplementaryGroups=storagebench
 # Secret token comes from the env file; non-secret settings from the JSON config.
 EnvironmentFile=${ENV_FILE}
 ExecStart=${PREFIX}/${BINARY_NAME} --config ${CONFIG_FILE}

@@ -42,6 +42,7 @@ AUDIT_PATH="${LOG_DIR}/broker-audit.log"
 CONFIG_DIR="/etc/storagebench"
 CONFIG_FILE="${CONFIG_DIR}/agent.json"
 AGENT_SERVICE="storagebench-agent"
+AGENT_BINARY="storagebench-agent"
 GO_MIN_MINOR=22
 GO_VERSION="1.22.9"
 
@@ -182,6 +183,19 @@ UNIT
 # ---- wire the agent -------------------------------------------------------
 wire_agent() {
   [[ -f "$CONFIG_FILE" ]] || { warn "agent config ${CONFIG_FILE} not found; skipping agent wiring."; return; }
+
+  # Warn loudly if the installed agent binary predates the fault-injection
+  # feature: wiring the config alone would not help, and a later agent re-deploy
+  # with an old installer could overwrite this key again.
+  local agent_bin="${PREFIX}/${AGENT_BINARY}"
+  if [[ -x "$agent_bin" ]]; then
+    if ! strings "$agent_bin" 2>/dev/null | grep -q "management interface detected"; then
+      warn "The installed agent binary (${agent_bin}) does NOT support fault"
+      warn "injection. Rebuild/redeploy the agent from the current repo:"
+      warn "  sudo ./deploy/agent/install-agent.sh --controller ... --token ... --no-deps"
+    fi
+  fi
+
   if grep -q '"brokerSocket"' "$CONFIG_FILE"; then
     log "Agent config already references brokerSocket; leaving as-is."
   else
@@ -193,12 +207,24 @@ wire_agent() {
       NR==1 && $0 ~ /\{/ { print; print "  \"brokerSocket\": \"" sock "\","; next }
       { print }
     ' "$CONFIG_FILE" > "$tmp"
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -c "import json,sys;json.load(open('$tmp'))" \
+        || die "failed to insert brokerSocket (invalid JSON); left ${CONFIG_FILE} untouched."
+    fi
     install -m 0640 -o root -g "$SERVICE_USER" "$tmp" "$CONFIG_FILE"
     rm -f "$tmp"
+  fi
+
+  # Make sure the agent user is in the broker group so it can reach the socket,
+  # then restart the agent so the new group membership and config take effect.
+  if id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    usermod -aG "$SERVICE_USER" "$SERVICE_USER" 2>/dev/null || true
   fi
   if systemctl list-unit-files | grep -q "^${AGENT_SERVICE}.service"; then
     log "Restarting ${AGENT_SERVICE} to pick up the broker socket ..."
     systemctl restart "$AGENT_SERVICE" || warn "could not restart ${AGENT_SERVICE}"
+  else
+    warn "${AGENT_SERVICE}.service not found; restart the agent manually so it picks up brokerSocket."
   fi
 }
 
