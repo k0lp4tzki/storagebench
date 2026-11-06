@@ -86,11 +86,8 @@ func BuildJobfile(s *Spec, workDir string) (RenderedJob, error) {
 	// Group reporting so numjobs>1 is summarized as one result.
 	writeKV(&b, "group_reporting", "1")
 
-	// Safety net: when the workload is read-only we additionally pass fio's
-	// readonly guard so a misconfiguration cannot issue writes.
-	if !s.Workload.isWrite() {
-		writeKV(&b, "readonly", "1")
-	}
+	// Note: fio's read-only guard is NOT a jobfile keyword; it is the CLI flag
+	// --readonly. The runner adds it for read-only workloads (see Runner.Run).
 
 	// Target: filename for both file and device targets. For file targets we set
 	// size so fio creates/uses a bounded file; for device targets we optionally

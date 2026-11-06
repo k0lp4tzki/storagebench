@@ -254,3 +254,9 @@ func validateTargetPath(kind TargetKind, path string) error {
 func (s *Spec) NormalizedBlockSize() string {
 	return strings.ToLower(s.BlockSize)
 }
+
+// IsReadOnly reports whether the workload performs no writes. The runner uses
+// this to pass fio's --readonly CLI guard as a safety net for read workloads.
+func (s *Spec) IsReadOnly() bool {
+	return !s.Workload.isWrite()
+}

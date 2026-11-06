@@ -85,10 +85,16 @@ func (r *Runner) Run(ctx context.Context, spec *Spec, workDir string, statusInte
 		"--output-format=json+",
 		"--output=" + finalReportPath,
 		fmt.Sprintf("--status-interval=%d", statusIntervalSec),
-		// Live status also comes out as JSON; with --output set to a file, the
-		// periodic status dumps go to stdout. We parse stdout for live data.
-		jobfilePath,
 	}
+	// Safety net for read workloads: fio's --readonly is a CLI flag (not a
+	// jobfile keyword) that makes fio refuse any write command, guarding against
+	// a misconfiguration issuing writes to the target.
+	if spec.IsReadOnly() {
+		args = append(args, "--readonly")
+	}
+	// Live status also comes out as JSON; with --output set to a file, the
+	// periodic status dumps go to stdout. We parse stdout for live data.
+	args = append(args, jobfilePath)
 
 	cmd := exec.CommandContext(ctx, r.FioPath, args...)
 	cmd.Dir = workDir

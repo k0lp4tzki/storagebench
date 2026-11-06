@@ -41,26 +41,40 @@ func TestBuildJobfileContainsExpectedOptions(t *testing.T) {
 	}
 }
 
-func TestBuildJobfileReadonlyGuardForReads(t *testing.T) {
-	s := validSpec() // randread
-	rendered, err := BuildJobfile(&s, "/tmp/run")
-	if err != nil {
-		t.Fatalf("BuildJobfile: %v", err)
-	}
-	if !strings.Contains(rendered.JobfileContent, "readonly=1") {
-		t.Error("expected readonly=1 guard for a read-only workload")
+// The read-only guard is fio's --readonly CLI flag, not a jobfile keyword.
+// "readonly" must never appear in the jobfile (fio rejects it there).
+func TestBuildJobfileNeverContainsReadonlyKeyword(t *testing.T) {
+	for _, w := range []Workload{WorkloadRandRead, WorkloadSeqRead, WorkloadSeqWrite, WorkloadRandRW} {
+		s := validSpec()
+		s.Workload = w
+		if w.isMixed() {
+			s.RWMixRead = 50
+		}
+		rendered, err := BuildJobfile(&s, "/tmp/run")
+		if err != nil {
+			t.Fatalf("BuildJobfile(%s): %v", w, err)
+		}
+		if strings.Contains(rendered.JobfileContent, "readonly") {
+			t.Errorf("jobfile for %s must not contain the invalid 'readonly' keyword:\n%s", w, rendered.JobfileContent)
+		}
 	}
 }
 
-func TestBuildJobfileNoReadonlyForWrites(t *testing.T) {
-	s := validSpec()
-	s.Workload = WorkloadSeqWrite
-	rendered, err := BuildJobfile(&s, "/tmp/run")
-	if err != nil {
-		t.Fatalf("BuildJobfile: %v", err)
+func TestSpecIsReadOnly(t *testing.T) {
+	cases := map[Workload]bool{
+		WorkloadRandRead:  true,
+		WorkloadSeqRead:   true,
+		WorkloadRandWrite: false,
+		WorkloadSeqWrite:  false,
+		WorkloadRandRW:    false,
+		WorkloadSeqRW:     false,
 	}
-	if strings.Contains(rendered.JobfileContent, "readonly=1") {
-		t.Error("did not expect readonly guard for a write workload")
+	for w, want := range cases {
+		s := validSpec()
+		s.Workload = w
+		if got := s.IsReadOnly(); got != want {
+			t.Errorf("IsReadOnly(%s) = %v, want %v", w, got, want)
+		}
 	}
 }
 
