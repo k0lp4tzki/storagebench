@@ -1,0 +1,40 @@
+# docker compose setup for the storagebench controller (controller only).
+#
+# Usage:
+#   # set a token once (do not commit real secrets):
+#   export STORAGEBENCH_AGENT_TOKEN="choose-a-strong-token"
+#   docker compose up --build
+#
+# Then open http://127.0.0.1:8080 in your browser.
+#
+# The SQLite database is kept in a named volume so results survive restarts.
+services:
+  controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: storagebench-controller:latest
+    container_name: storagebench-controller
+    # Bind only to localhost on the host by default. Change to "8080:8080" to
+    # expose it on all host interfaces (e.g. to reach it from other machines).
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Pre-shared token agents must present. Provided from the host environment
+      # so it is never baked into the image. Falls back to a dev value if unset.
+      STORAGEBENCH_AGENT_TOKEN: "${STORAGEBENCH_AGENT_TOKEN:-dev-token-change-me}"
+      STORAGEBENCH_LISTEN_ADDR: "0.0.0.0:8080"
+      STORAGEBENCH_DB_PATH: "/app/data/storagebench.db"
+    volumes:
+      - controller-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      # The controller exposes /api/health. Use a tiny inline check.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /api/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"status\":\"ok\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  controller-data:

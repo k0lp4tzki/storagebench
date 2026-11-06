@@ -1,0 +1,20 @@
+# Keep the build context small and avoid leaking local artifacts/secrets.
+.git
+.github
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Node / build outputs (the image rebuilds these from source).
+web/node_modules/
+web/dist/
+web/.vite/
+cmd/controller/webdist/*
+!cmd/controller/webdist/index.html
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.log
