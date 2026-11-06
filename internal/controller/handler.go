@@ -152,6 +152,11 @@ func (h *Hub) handleControl(ac *agentConn, env protocol.Envelope) {
 		if err := env.Decode(&st); err == nil {
 			h.telemetrySink.OnTestState(ac.agentID, st)
 		}
+	case protocol.TypeTestResult:
+		var res protocol.TestResult
+		if err := env.Decode(&res); err == nil {
+			h.telemetrySink.OnTestResult(ac.agentID, res)
+		}
 	case protocol.TypeHello:
 		// Ignore a duplicate hello on an established connection.
 	default:

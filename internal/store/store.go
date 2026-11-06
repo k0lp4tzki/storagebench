@@ -173,6 +173,12 @@ func (s *Store) OnTestState(agentID string, st protocol.TestState) {
 	}
 	_, _ = s.db.Exec(`UPDATE run_node SET phase=?, phase_message=? WHERE id=?`,
 		string(st.Phase), st.Message, runNodeID)
+
+	// If this transition is terminal, the run may now be fully done.
+	switch st.Phase {
+	case protocol.PhaseCompleted, protocol.PhaseFailed, protocol.PhaseAborted:
+		s.maybeCompleteRunLocked(st.RunID)
+	}
 }
 
 // lookupRunNode resolves (runID, agentID) to a run_node row id. Caller must hold

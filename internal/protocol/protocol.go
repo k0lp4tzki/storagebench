@@ -46,6 +46,8 @@ const (
 	TypeAck MessageType = "ack"
 	// TypeTestState reports a transition in the local test lifecycle.
 	TypeTestState MessageType = "test_state"
+	// TypeTestResult carries the final per-run fio summary from an agent.
+	TypeTestResult MessageType = "test_result"
 
 	// --- Control channel: controller -> agent ---
 
@@ -177,6 +179,7 @@ const (
 	PhaseStopping  TestStatePhase = "stopping"
 	PhaseCompleted TestStatePhase = "completed"
 	PhaseFailed    TestStatePhase = "failed"
+	PhaseAborting  TestStatePhase = "aborting"
 	PhaseAborted   TestStatePhase = "aborted"
 )
 
@@ -185,6 +188,22 @@ type TestState struct {
 	RunID   string         `json:"runId"`
 	Phase   TestStatePhase `json:"phase"`
 	Message string         `json:"message,omitempty"`
+}
+
+// TestResult carries the final per-run summary from an agent to the controller.
+// FioReportJSON is fio's verbatim final JSON (json+) for full fidelity storage;
+// the scalar fields are the distilled headline metrics for quick display.
+type TestResult struct {
+	RunID         string  `json:"runId"`
+	ExitCode      int     `json:"exitCode"`
+	IOPSRead      float64 `json:"iopsRead"`
+	IOPSWrite     float64 `json:"iopsWrite"`
+	BWReadKBs     float64 `json:"bwReadKBs"`
+	BWWriteKBs    float64 `json:"bwWriteKBs"`
+	LatMeanUs     float64 `json:"latMeanUs"`
+	LatP95Us      float64 `json:"latP95Us"`
+	LatP99Us      float64 `json:"latP99Us"`
+	FioReportJSON string  `json:"fioReportJson,omitempty"`
 }
 
 // AssignTest hands a resolved, authorized job to the agent. The concrete

@@ -57,6 +57,8 @@ type TelemetrySink interface {
 	OnAgentHello(agentID string, h protocol.Hello)
 	// OnTestState records a lifecycle transition reported by an agent.
 	OnTestState(agentID string, st protocol.TestState)
+	// OnTestResult records the final per-run result reported by an agent.
+	OnTestResult(agentID string, res protocol.TestResult)
 }
 
 // NewHub creates a hub. heartbeat is the ping interval; an agent is marked

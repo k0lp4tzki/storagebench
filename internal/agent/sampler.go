@@ -26,6 +26,12 @@ type Sampler struct {
 	seq       uint64 // last assigned batch sequence
 	runID     string // current run id for telemetry association
 	collector metricsCollector
+
+	// fioLive holds the most recent fio-derived metrics (IOPS/BW/latency). The
+	// fio runner updates it; each host sample merges these in so storage and host
+	// metrics share one timestamp. hasFio guards whether to include them.
+	fioLive protocol.MetricSample
+	hasFio  bool
 }
 
 // NewSampler creates a sampler with the given collection interval.
@@ -67,12 +73,42 @@ func (s *Sampler) Start(ctx context.Context) {
 func (s *Sampler) append(sample protocol.MetricSample) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Merge the latest fio-derived metrics so storage and host metrics share one
+	// timestamped sample.
+	if s.hasFio {
+		sample.IOPSRead = s.fioLive.IOPSRead
+		sample.IOPSWrite = s.fioLive.IOPSWrite
+		sample.BWReadKBs = s.fioLive.BWReadKBs
+		sample.BWWriteKBs = s.fioLive.BWWriteKBs
+		sample.LatMeanUs = s.fioLive.LatMeanUs
+		sample.LatP95Us = s.fioLive.LatP95Us
+		sample.LatP99Us = s.fioLive.LatP99Us
+		sample.QueueDepth = s.fioLive.QueueDepth
+	}
 	if len(s.buf) >= maxBufferedSamples {
 		// Drop oldest to bound memory.
 		drop := len(s.buf) - maxBufferedSamples + 1
 		s.buf = s.buf[drop:]
 	}
 	s.buf = append(s.buf, sample)
+}
+
+// SetFioMetrics records the latest fio-derived metrics to be merged into
+// subsequent host samples. Called by the fio runner on each live update.
+func (s *Sampler) SetFioMetrics(m protocol.MetricSample) {
+	s.mu.Lock()
+	s.fioLive = m
+	s.hasFio = true
+	s.mu.Unlock()
+}
+
+// ClearFioMetrics stops merging fio metrics (call when a test ends) so idle
+// host telemetry does not carry stale IOPS/latency values.
+func (s *Sampler) ClearFioMetrics() {
+	s.mu.Lock()
+	s.fioLive = protocol.MetricSample{}
+	s.hasFio = false
+	s.mu.Unlock()
 }
 
 // DrainBatch returns all buffered samples as a single batch and advances the

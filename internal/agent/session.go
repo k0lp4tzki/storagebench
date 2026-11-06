@@ -42,6 +42,13 @@ func (s *session) run(ctx context.Context) error {
 	}
 	s.a.log.Info("connected to controller", "heartbeat", s.heartbeat)
 
+	// Route test lifecycle reports to this session while it is connected. On
+	// disconnect we revert to the no-op reporter so a running test continues
+	// without trying to write to a dead socket; its telemetry is replayed on
+	// reconnect via the sampler.
+	s.a.testCtl.SetReporter(s)
+	defer s.a.testCtl.SetReporter(nil)
+
 	errc := make(chan error, 3)
 
 	go func() { errc <- s.writeLoop(connCtx) }()
@@ -125,10 +132,44 @@ func (s *session) readLoop(ctx context.Context) error {
 			if err := env.Decode(&ack); err == nil {
 				s.a.sampler.Acknowledge(ack.RunID, ack.Seq)
 			}
-		case protocol.TypeAssignTest, protocol.TypeStart, protocol.TypeStop, protocol.TypeAbort:
-			// Benchmark lifecycle is handled in the next phase. For now we log
-			// receipt so the control path is observable end-to-end.
-			s.a.log.Info("received test command", "type", env.Type)
+		case protocol.TypeAssignTest:
+			var at protocol.AssignTest
+			if err := env.Decode(&at); err != nil {
+				s.a.log.Warn("bad assign_test", "err", err)
+				break
+			}
+			if err := s.a.testCtl.Assign(at.RunID, at.AuthorizedUntilMilli, at.Spec); err != nil {
+				s.a.log.Warn("assign failed", "run", at.RunID, "err", err)
+				s.ReportState(protocol.TestState{RunID: at.RunID, Phase: protocol.PhaseFailed, Message: err.Error()})
+			}
+		case protocol.TypeStart:
+			var st protocol.Start
+			if err := env.Decode(&st); err != nil {
+				s.a.log.Warn("bad start", "err", err)
+				break
+			}
+			if err := s.a.testCtl.Start(st.RunID); err != nil {
+				s.a.log.Warn("start failed", "run", st.RunID, "err", err)
+				s.ReportState(protocol.TestState{RunID: st.RunID, Phase: protocol.PhaseFailed, Message: err.Error()})
+			}
+		case protocol.TypeStop:
+			var st protocol.Stop
+			if err := env.Decode(&st); err != nil {
+				s.a.log.Warn("bad stop", "err", err)
+				break
+			}
+			if err := s.a.testCtl.Stop(st.RunID); err != nil {
+				s.a.log.Warn("stop failed", "run", st.RunID, "err", err)
+			}
+		case protocol.TypeAbort:
+			var ab protocol.Abort
+			if err := env.Decode(&ab); err != nil {
+				s.a.log.Warn("bad abort", "err", err)
+				break
+			}
+			if err := s.a.testCtl.Abort(ab.RunID, ab.Reason); err != nil {
+				s.a.log.Warn("abort failed", "run", ab.RunID, "err", err)
+			}
 		default:
 			s.a.log.Debug("unhandled control frame", "type", env.Type)
 		}
@@ -166,6 +207,28 @@ func (s *session) enqueueControl(t protocol.MessageType, payload any) {
 		return
 	}
 	_ = s.enqueue(env)
+}
+
+// --- Reporter implementation (TestController -> controller) ---
+
+// ReportState forwards a lifecycle transition on the control channel.
+func (s *session) ReportState(st protocol.TestState) {
+	s.enqueueControl(protocol.TypeTestState, st)
+}
+
+// ReportEvent forwards a discrete event on the telemetry channel (events are
+// correlated with metric samples on the shared timeline).
+func (s *session) ReportEvent(ev protocol.Event) {
+	env, err := protocol.NewEnvelope(protocol.ChannelTelemetry, protocol.TypeEvent, clock.NowWallMilli(), ev)
+	if err != nil {
+		return
+	}
+	_ = s.enqueue(env)
+}
+
+// ReportResult forwards the final per-run result on the control channel.
+func (s *session) ReportResult(res protocol.TestResult) {
+	s.enqueueControl(protocol.TypeTestResult, res)
 }
 
 func (s *session) enqueue(env protocol.Envelope) error {

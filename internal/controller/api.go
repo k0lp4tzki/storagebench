@@ -90,14 +90,39 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, nodes)
 }
 
-// handleRuns returns recent runs.
+// handleRuns lists recent runs (GET) or starts a new run (POST).
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	runs, err := s.store.ListRuns(100)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list runs failed")
+	switch r.Method {
+	case http.MethodGet:
+		runs, err := s.store.ListRuns(100)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "list runs failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, runs)
+	case http.MethodPost:
+		s.handleStartRun(w, r)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleStartRun decodes a StartRunRequest and launches it via the hub.
+func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
+	var req StartRunRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, runs)
+	runID, err := s.hub.StartRun(s.store, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"runId": runID})
 }
 
 func (s *Server) handlePlaceholder(w http.ResponseWriter, r *http.Request) {

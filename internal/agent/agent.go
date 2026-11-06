@@ -47,6 +47,10 @@ type Agent struct {
 
 	// sampler produces host metrics; wired in Run.
 	sampler *Sampler
+
+	// testCtl owns the fio benchmark lifecycle for this agent. Its Reporter is
+	// set per-connection so results route to the active session.
+	testCtl *TestController
 }
 
 // New constructs an Agent, probing system info and capabilities once at startup.
@@ -63,13 +67,15 @@ func New(cfg config.Agent, log *slog.Logger) *Agent {
 		id = hostname
 	}
 
+	sampler := NewSampler(time.Duration(cfg.SampleIntervalMS) * time.Millisecond)
 	a := &Agent{
 		cfg:     cfg,
 		log:     log.With("agent", id),
 		id:      id,
 		caps:    caps,
 		sys:     sys,
-		sampler: NewSampler(time.Duration(cfg.SampleIntervalMS) * time.Millisecond),
+		sampler: sampler,
+		testCtl: NewTestController(log.With("agent", id), sampler, cfg.SpoolDir, "fio"),
 	}
 	return a
 }
