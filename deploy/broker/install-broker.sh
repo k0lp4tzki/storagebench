@@ -22,6 +22,11 @@
 #
 # Optional flags:
 #   --prefix DIR     Install dir for the binary (default: /usr/local/bin)
+#   --from-release   Download nightly binary from GitHub Releases (no compile)
+#   --from-image     Extract the binary from ghcr.io/.../storagebench-broker
+#   --build          Compile from this repo (default on Ubuntu)
+#   --binary PATH    Install this prebuilt broker binary instead of building from
+#                    source (offline/air-gapped). Implies --no-build.
 #   --no-build       Use an existing binary from --prefix instead of building
 #   --no-agent-wire  Do not modify the agent config / restart the agent
 #
@@ -30,7 +35,11 @@ set -euo pipefail
 # ---- defaults -------------------------------------------------------------
 PREFIX="/usr/local/bin"
 DO_BUILD="true"
+FETCH_SOURCE="${STORAGEBENCH_FETCH:-}"
 WIRE_AGENT="true"
+# Optional: install a prebuilt broker binary instead of building from source
+# (offline/air-gapped deploys). Implies --no-build.
+BINARY_SRC="${STORAGEBENCH_BROKER_BINARY:-}"
 
 SERVICE_USER="storagebench"            # group the agent runs as / joins
 BINARY_NAME="storagebench-broker"
@@ -53,12 +62,18 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd)"
+# shellcheck source=../lib/fetch-prebuilt.sh
+source "${REPO_ROOT}/deploy/lib/fetch-prebuilt.sh"
 
 # ---- argument parsing -----------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --prefix)        PREFIX="$2"; shift 2 ;;
-    --no-build)      DO_BUILD="false"; shift ;;
+    --from-release)  FETCH_SOURCE="release"; DO_BUILD="false"; shift ;;
+    --from-image)    FETCH_SOURCE="image"; DO_BUILD="false"; shift ;;
+    --build)         FETCH_SOURCE=""; DO_BUILD="true"; shift ;;
+    --binary)        BINARY_SRC="$2"; FETCH_SOURCE=""; DO_BUILD="false"; shift 2 ;;
+    --no-build)      FETCH_SOURCE=""; DO_BUILD="false"; shift ;;
     --no-agent-wire) WIRE_AGENT="false"; shift ;;
     -h|--help)       grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (use --help)" ;;
@@ -239,12 +254,7 @@ log "  repo root : ${REPO_ROOT}"
 log "  socket    : ${SOCKET_PATH}"
 log "  audit log : ${AUDIT_PATH}"
 
-if [[ "$DO_BUILD" == "true" ]]; then
-  build_broker
-else
-  [[ -x "${PREFIX}/${BINARY_NAME}" ]] || die "--no-build set but ${PREFIX}/${BINARY_NAME} is missing."
-  warn "skipping build (--no-build); using existing ${PREFIX}/${BINARY_NAME}"
-fi
+install_fetched_or_built broker "${PREFIX}/${BINARY_NAME}"
 
 ensure_group_and_dirs
 write_service

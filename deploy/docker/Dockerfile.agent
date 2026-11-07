@@ -1,0 +1,19 @@
+# Runtime image for the storagebench agent. The binary is a static Go build
+# copied in by CI; fio (and a few capability-detection tools) live in the image
+# so `docker run` works without a host toolchain.
+#
+# Build context is a directory that contains `storagebench-agent`.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+         fio iproute2 ca-certificates sysstat smartmontools nvme-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY storagebench-agent /usr/local/bin/storagebench-agent
+
+LABEL org.opencontainers.image.title="storagebench-agent" \
+      org.opencontainers.image.description="storagebench benchmark agent (fio + telemetry)" \
+      org.opencontainers.image.source="https://github.com/k0lp4tzki/storagebench"
+
+ENTRYPOINT ["/usr/local/bin/storagebench-agent"]

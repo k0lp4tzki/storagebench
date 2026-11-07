@@ -1,0 +1,20 @@
+# Runtime image for the storagebench privilege-broker. Must run as root with
+# CAP_NET_ADMIN (or --privileged) and host networking so `tc` can change qdiscs
+# on the host's interfaces. The binary is a static Go build copied in by CI.
+#
+# Build context is a directory that contains `storagebench-broker`.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends iproute2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY storagebench-broker /usr/local/bin/storagebench-broker
+
+LABEL org.opencontainers.image.title="storagebench-broker" \
+      org.opencontainers.image.description="storagebench privilege-broker (tc/netem, root)" \
+      org.opencontainers.image.source="https://github.com/k0lp4tzki/storagebench"
+
+# Root is required: this is the only privileged component.
+USER root
+ENTRYPOINT ["/usr/local/bin/storagebench-broker"]

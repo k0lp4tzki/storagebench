@@ -8,9 +8,9 @@
 # What it does:
 #   1. Installs dependencies via zypper: fio (required) plus useful tools for
 #      later phases (smartctl, nvme, iostat, multipath, device-mapper, tc).
-#   2. Builds the static agent binary from this repository (installs Go if the
-#      system Go is missing or too old). CGO is disabled, so the binary is fully
-#      static and portable.
+#   2. Installs the agent binary WITHOUT compiling on this host: downloads the
+#      nightly GitHub Release published by CI (or extracts it from the GHCR
+#      image). Pass --build only if you really want to compile locally.
 #   3. Creates a dedicated system user, config file, and spool directory.
 #   4. Installs and starts a systemd service that reconnects automatically.
 #
@@ -20,11 +20,18 @@
 #       --controller ws://CONTROLLER_HOST:8080/ws/agent \
 #       --token "YOUR_SHARED_TOKEN"
 #
+# Images (published by GitHub Actions on every push to main):
+#   docker pull ghcr.io/k0lp4tzki/storagebench-agent:latest
+#
 # Optional flags:
 #   --agent-id NAME        Stable agent id (default: system hostname)
 #   --broker-socket PATH   Enable fault injection via a local privilege-broker
 #                          socket. If omitted, an existing brokerSocket already in
 #                          the config is PRESERVED (re-running never disables it).
+#   --from-release         Download nightly binary from GitHub Releases (default)
+#   --from-image           Extract the binary from ghcr.io/.../storagebench-agent
+#   --build                Compile from this repo instead of downloading
+#   --binary PATH          Install this prebuilt agent binary. Implies --no-build.
 #   --insecure             Skip TLS verification (self-signed wss:// only)
 #   --prefix DIR           Install dir for the binary (default: /usr/local/bin)
 #   --no-deps              Do not install packages (assume already present)
@@ -47,7 +54,12 @@ BROKER_SOCKET="${STORAGEBENCH_BROKER_SOCKET:-}"
 INSECURE="false"
 PREFIX="/usr/local/bin"
 INSTALL_DEPS="true"
-DO_BUILD="true"
+# SLES default: do not compile. Pull the CI-published nightly binary.
+DO_BUILD="false"
+FETCH_SOURCE="${STORAGEBENCH_FETCH:-release}"
+# Optional: install a prebuilt agent binary instead of building from source
+# (offline/air-gapped deploys). Implies --no-build.
+BINARY_SRC="${STORAGEBENCH_AGENT_BINARY:-}"
 
 SERVICE_USER="storagebench"
 CONFIG_DIR="/etc/storagebench"
@@ -68,6 +80,8 @@ die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 # Resolve the repository root (two levels up from this script: deploy/agent/..).
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd)"
+# shellcheck source=../lib/fetch-prebuilt.sh
+source "${REPO_ROOT}/deploy/lib/fetch-prebuilt.sh"
 
 # ---- argument parsing -----------------------------------------------------
 while [[ $# -gt 0 ]]; do
@@ -76,10 +90,14 @@ while [[ $# -gt 0 ]]; do
     --token)         TOKEN="$2"; shift 2 ;;
     --agent-id)      AGENT_ID="$2"; shift 2 ;;
     --broker-socket) BROKER_SOCKET="$2"; shift 2 ;;
+    --from-release)  FETCH_SOURCE="release"; DO_BUILD="false"; shift ;;
+    --from-image)    FETCH_SOURCE="image"; DO_BUILD="false"; shift ;;
+    --build)         FETCH_SOURCE=""; DO_BUILD="true"; shift ;;
+    --binary)        BINARY_SRC="$2"; FETCH_SOURCE=""; DO_BUILD="false"; shift 2 ;;
     --insecure)      INSECURE="true"; shift ;;
     --prefix)        PREFIX="$2"; shift 2 ;;
     --no-deps)       INSTALL_DEPS="false"; shift ;;
-    --no-build)      DO_BUILD="false"; shift ;;
+    --no-build)      FETCH_SOURCE=""; DO_BUILD="false"; shift ;;
     -h|--help)       grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (use --help)" ;;
   esac
@@ -281,12 +299,7 @@ log "  repo root  : ${REPO_ROOT}"
 [[ "$INSTALL_DEPS" == "true" ]] && install_deps || warn "skipping dependency install (--no-deps)"
 ensure_fio
 
-if [[ "$DO_BUILD" == "true" ]]; then
-  build_agent
-else
-  [[ -x "${PREFIX}/${BINARY_NAME}" ]] || die "--no-build set but ${PREFIX}/${BINARY_NAME} is not present/executable."
-  warn "skipping build (--no-build); using existing ${PREFIX}/${BINARY_NAME}"
-fi
+install_fetched_or_built agent "${PREFIX}/${BINARY_NAME}"
 
 create_user_and_dirs
 write_config

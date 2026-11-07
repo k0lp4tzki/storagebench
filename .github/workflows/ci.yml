@@ -15,6 +15,8 @@ permissions:
   # Write is needed so CI can commit a generated web/package-lock.json back on
   # pushes to main (keeps frontend builds reproducible without a dev machine).
   contents: write
+  # Publish job pushes images to GHCR.
+  packages: write
 
 jobs:
   build:
@@ -82,3 +84,113 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Upload Linux binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: |
+            bin/storagebench-agent
+            bin/storagebench-broker
+          if-no-files-found: error
+
+  publish:
+    name: publish GHCR images & nightly binaries
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64-binaries
+          path: .
+
+      - name: Lowercase image owner
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push controller image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/storagebench-controller:latest
+            ghcr.io/${{ env.OWNER }}/storagebench-controller:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Prepare agent/broker image contexts
+        run: |
+          # upload-artifact preserves bin/; download to '.' yields bin/<binary>.
+          test -x bin/storagebench-agent && test -x bin/storagebench-broker
+          mkdir -p .img/agent .img/broker
+          cp bin/storagebench-agent .img/agent/storagebench-agent
+          cp bin/storagebench-broker .img/broker/storagebench-broker
+          chmod 0755 .img/agent/storagebench-agent .img/broker/storagebench-broker
+
+      - name: Build and push agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .img/agent
+          file: deploy/docker/Dockerfile.agent
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/storagebench-agent:latest
+            ghcr.io/${{ env.OWNER }}/storagebench-agent:${{ github.sha }}
+
+      - name: Build and push broker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .img/broker
+          file: deploy/docker/Dockerfile.broker
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/storagebench-broker:latest
+            ghcr.io/${{ env.OWNER }}/storagebench-broker:${{ github.sha }}
+
+      - name: Publish nightly GitHub Release (static binaries)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          cp bin/storagebench-agent dist/storagebench-agent-linux-amd64
+          cp bin/storagebench-broker dist/storagebench-broker-linux-amd64
+          NOTES="Nightly binaries + GHCR images from ${GITHUB_SHA}
+
+          Images:
+            ghcr.io/${OWNER}/storagebench-controller:latest
+            ghcr.io/${OWNER}/storagebench-agent:latest
+            ghcr.io/${OWNER}/storagebench-broker:latest
+
+          SLES hosts can install without compiling:
+            sudo ./deploy/agent/install-agent-sles.sh --controller ... --token ...
+            sudo ./deploy/broker/install-broker-sles.sh
+          "
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release upload nightly dist/storagebench-agent-linux-amd64 dist/storagebench-broker-linux-amd64 --clobber
+            gh release edit nightly --notes "$NOTES"
+          else
+            gh release create nightly dist/storagebench-agent-linux-amd64 dist/storagebench-broker-linux-amd64 \
+              --title "nightly" --notes "$NOTES" --latest
+          fi
+

@@ -74,6 +74,42 @@ be present on the build host).
 
 ## Deploy (overview)
 
+GitHub Actions publishes ready-to-pull images on every push to `main`:
+
+```
+ghcr.io/k0lp4tzki/storagebench-controller:latest
+ghcr.io/k0lp4tzki/storagebench-agent:latest
+ghcr.io/k0lp4tzki/storagebench-broker:latest
+```
+
+Controller (no local compile):
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+SLES agent / broker (no Go toolchain, no compile — the installer downloads the
+nightly binary that CI attached to the `nightly` GitHub Release):
+
+```bash
+sudo ./deploy/agent/install-agent-sles.sh \
+    --controller ws://CONTROLLER_HOST:8080/ws/agent \
+    --token "YOUR_SHARED_TOKEN"
+sudo ./deploy/broker/install-broker-sles.sh
+```
+
+To take the binary out of the GHCR image instead: pass `--from-image`.
+To compile on the host as before: pass `--build`.
+
+If the GHCR packages are private, log in once:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
+```
+
+Then, in GitHub: **Packages → each package → Package settings → Change visibility → Public**
+if you want unauthenticated `docker pull`.
+
 1. Build on a Linux host (or download CI artifacts).
 2. Copy `bin/storagebench-controller` to the controller host and
    `bin/storagebench-agent` to **all three** hosts (including the controller host).

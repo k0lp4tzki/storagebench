@@ -1,8 +1,10 @@
 # docker compose setup for the storagebench controller (controller only).
 #
-# Usage:
-#   # set a token once (do not commit real secrets):
+# Usage (pull the CI-published image, no local compile):
 #   export STORAGEBENCH_AGENT_TOKEN="choose-a-strong-token"
+#   docker compose pull && docker compose up -d
+#
+# Or build locally from this checkout:
 #   docker compose up --build
 #
 # Then open http://127.0.0.1:8080 in your browser.
@@ -13,7 +15,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: storagebench-controller:latest
+    image: ${SB_IMAGE:-ghcr.io/k0lp4tzki/storagebench-controller:latest}
     container_name: storagebench-controller
     # Port binding is configurable so a git pull does not reset your choice.
     # Default binds to localhost only. To reach the controller from other
