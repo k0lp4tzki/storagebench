@@ -92,6 +92,7 @@ jobs:
           path: |
             bin/storagebench-agent
             bin/storagebench-broker
+            bin/storagebench-controller
           if-no-files-found: error
 
   publish:
@@ -147,13 +148,15 @@ jobs:
           echo "artifact tree:" && find artifacts -type f -print
           AGENT="$(find artifacts -type f -name 'storagebench-agent' | head -n1)"
           BROKER="$(find artifacts -type f -name 'storagebench-broker' | head -n1)"
-          test -n "$AGENT" && test -n "$BROKER"
+          CONTROLLER="$(find artifacts -type f -name 'storagebench-controller' | head -n1)"
+          test -n "$AGENT" && test -n "$BROKER" && test -n "$CONTROLLER"
           mkdir -p bin .img/agent .img/broker
           cp "$AGENT" bin/storagebench-agent
           cp "$BROKER" bin/storagebench-broker
+          cp "$CONTROLLER" bin/storagebench-controller
           cp "$AGENT" .img/agent/storagebench-agent
           cp "$BROKER" .img/broker/storagebench-broker
-          chmod 0755 bin/storagebench-agent bin/storagebench-broker \
+          chmod 0755 bin/storagebench-agent bin/storagebench-broker bin/storagebench-controller \
             .img/agent/storagebench-agent .img/broker/storagebench-broker
 
       - name: Build and push agent image
@@ -183,22 +186,34 @@ jobs:
           mkdir -p dist
           cp bin/storagebench-agent dist/storagebench-agent-linux-amd64
           cp bin/storagebench-broker dist/storagebench-broker-linux-amd64
+          cp bin/storagebench-controller dist/storagebench-controller-linux-amd64
           NOTES="Nightly binaries + GHCR images from ${GITHUB_SHA}
 
-          Images:
+          Images (preferred for the controller):
             ghcr.io/${OWNER}/storagebench-controller:latest
             ghcr.io/${OWNER}/storagebench-agent:latest
             ghcr.io/${OWNER}/storagebench-broker:latest
 
-          SLES hosts can install without compiling:
+          Binaries in this release:
+            storagebench-agent-linux-amd64      (static)
+            storagebench-broker-linux-amd64     (static)
+            storagebench-controller-linux-amd64 (needs glibc; UI embedded)
+
+          Controller via Docker:
+            docker pull ghcr.io/${OWNER}/storagebench-controller:latest
+            docker compose pull && docker compose up -d
+
+          SLES hosts can install agent/broker without compiling:
             sudo ./deploy/agent/install-agent-sles.sh --controller ... --token ...
             sudo ./deploy/broker/install-broker-sles.sh
           "
+          ASSETS="dist/storagebench-agent-linux-amd64 dist/storagebench-broker-linux-amd64 dist/storagebench-controller-linux-amd64"
           if gh release view nightly >/dev/null 2>&1; then
-            gh release upload nightly dist/storagebench-agent-linux-amd64 dist/storagebench-broker-linux-amd64 --clobber
+            # shellcheck disable=SC2086
+            gh release upload nightly $ASSETS --clobber
             gh release edit nightly --notes "$NOTES"
           else
-            gh release create nightly dist/storagebench-agent-linux-amd64 dist/storagebench-broker-linux-amd64 \
-              --title "nightly" --notes "$NOTES" --latest
+            # shellcheck disable=SC2086
+            gh release create nightly $ASSETS --title "nightly" --notes "$NOTES" --latest
           fi
 
