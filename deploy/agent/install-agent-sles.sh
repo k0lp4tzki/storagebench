@@ -186,11 +186,19 @@ build_agent() {
 
 # ---- 3. user, config, spool ----------------------------------------------
 create_user_and_dirs() {
+  # SLES useradd --system does not always create a matching group (Ubuntu -U
+  # does). Create the group first so install -g and SupplementaryGroups work.
+  if ! getent group "$SERVICE_USER" >/dev/null 2>&1; then
+    log "Creating group '${SERVICE_USER}' ..."
+    groupadd --system "$SERVICE_USER"
+  fi
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     log "Creating system user '${SERVICE_USER}' ..."
     local shell="$NOLOGIN"
     [[ -x "$shell" ]] || shell="/bin/false"
-    useradd --system --no-create-home --shell "$shell" "$SERVICE_USER"
+    useradd --system --no-create-home --gid "$SERVICE_USER" --shell "$shell" "$SERVICE_USER"
+  else
+    usermod -aG "$SERVICE_USER" "$SERVICE_USER" 2>/dev/null || true
   fi
   # The config dir must be traversable by the service group so the agent can
   # read its config file (owned root:storagebench). Group-owned by the service

@@ -178,9 +178,15 @@ build_agent() {
 
 # ---- 3. user, config, spool ----------------------------------------------
 create_user_and_dirs() {
+  if ! getent group "$SERVICE_USER" >/dev/null 2>&1; then
+    log "Creating group '${SERVICE_USER}' ..."
+    groupadd --system "$SERVICE_USER"
+  fi
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     log "Creating system user '${SERVICE_USER}' ..."
-    useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    useradd --system --no-create-home --gid "$SERVICE_USER" --shell /usr/sbin/nologin "$SERVICE_USER"
+  else
+    usermod -aG "$SERVICE_USER" "$SERVICE_USER" 2>/dev/null || true
   fi
   # The config dir must be traversable by the service group so the agent can
   # read its config file (owned root:storagebench). Group-owned by the service
