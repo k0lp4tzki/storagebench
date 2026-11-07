@@ -44,7 +44,7 @@ RUN go build -trimpath -tags embedui \
 FROM debian:bookworm-slim AS runtime
 # ca-certificates for any outbound TLS; create a non-root user.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home /app --shell /usr/sbin/nologin appuser
 WORKDIR /app
