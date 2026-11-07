@@ -112,7 +112,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: linux-amd64-binaries
-          path: .
+          path: artifacts
 
       - name: Lowercase image owner
         run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
@@ -141,12 +141,20 @@ jobs:
 
       - name: Prepare agent/broker image contexts
         run: |
-          # upload-artifact preserves bin/; download to '.' yields bin/<binary>.
-          test -x bin/storagebench-agent && test -x bin/storagebench-broker
-          mkdir -p .img/agent .img/broker
-          cp bin/storagebench-agent .img/agent/storagebench-agent
-          cp bin/storagebench-broker .img/broker/storagebench-broker
-          chmod 0755 .img/agent/storagebench-agent .img/broker/storagebench-broker
+          # upload-artifact@v4 strips the common parent (bin/), so the files land
+          # as artifacts/storagebench-agent (not artifacts/bin/...). Locate them
+          # regardless of layout and copy to canonical paths.
+          echo "artifact tree:" && find artifacts -type f -print
+          AGENT="$(find artifacts -type f -name 'storagebench-agent' | head -n1)"
+          BROKER="$(find artifacts -type f -name 'storagebench-broker' | head -n1)"
+          test -n "$AGENT" && test -n "$BROKER"
+          mkdir -p bin .img/agent .img/broker
+          cp "$AGENT" bin/storagebench-agent
+          cp "$BROKER" bin/storagebench-broker
+          cp "$AGENT" .img/agent/storagebench-agent
+          cp "$BROKER" .img/broker/storagebench-broker
+          chmod 0755 bin/storagebench-agent bin/storagebench-broker \
+            .img/agent/storagebench-agent .img/broker/storagebench-broker
 
       - name: Build and push agent image
         uses: docker/build-push-action@v6
