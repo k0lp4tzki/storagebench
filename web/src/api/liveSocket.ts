@@ -4,10 +4,12 @@
 import type { UIMessage } from "./types";
 
 type Listener = (msg: UIMessage) => void;
+type ConnListener = (up: boolean) => void;
 
 export class LiveSocket {
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
+  private connListeners = new Set<ConnListener>();
   private closed = false;
   private backoffMs = 1000;
   private readonly maxBackoffMs = 15000;
@@ -25,11 +27,21 @@ export class LiveSocket {
       this.ws.close();
       this.ws = null;
     }
+    this.emitConn(false);
   }
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  onConnection(fn: ConnListener): () => void {
+    this.connListeners.add(fn);
+    return () => this.connListeners.delete(fn);
+  }
+
+  private emitConn(up: boolean): void {
+    this.connListeners.forEach((l) => l(up));
   }
 
   private connect(): void {
@@ -39,6 +51,7 @@ export class LiveSocket {
 
     ws.onopen = () => {
       this.backoffMs = 1000;
+      this.emitConn(true);
     };
     ws.onmessage = (ev) => {
       try {
@@ -50,6 +63,7 @@ export class LiveSocket {
     };
     ws.onclose = () => {
       this.ws = null;
+      this.emitConn(false);
       if (!this.closed) this.scheduleReconnect();
     };
     ws.onerror = () => {

@@ -52,9 +52,20 @@ export function App() {
           </NavLink>
         ))}
         <div className="sidebar-foot">
-          <div className="conn" title={connected ? "Live-Verbindung zum Controller steht" : "Keine Live-Verbindung – Daten werden nicht aktualisiert"}>
-            <span className={`live-dot ${connected ? "on" : "off"}`} />
-            <span className="ellipsis">{connected ? "Verbunden" : "Keine Verbindung"}</span>
+          <div
+            className="conn"
+            title={
+              connected
+                ? "Live-Verbindung zum Controller steht"
+                : agents.length > 0
+                  ? "HTTP ok, Live-Stream (WebSocket) blockiert – Hosts per REST, keine Live-Graphen"
+                  : "Keine Verbindung zum Controller"
+            }
+          >
+            <span className={`live-dot ${connected || agents.length > 0 ? "on" : "off"}`} />
+            <span className="ellipsis">
+              {connected ? "Live verbunden" : agents.length > 0 ? "Verbunden" : "Nicht verbunden"}
+            </span>
           </div>
           <button
             className="btn ghost icon sm"

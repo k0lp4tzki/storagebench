@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { Profile } from "../api/types";
@@ -26,6 +26,17 @@ export function RunProfileDialog({
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Agents often arrive after the first render (HTTP poll). Pre-select
+  // online hosts once they show up, without undoing a manual choice.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size > 0) return prev;
+      return new Set(
+        agents.filter((a) => a.status === "online" && a.capabilities.fio).map((a) => a.agentId),
+      );
+    });
+  }, [agents]);
 
   const toggle = (id: string) =>
     setSelected((prev) => {

@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { api } from "../api/client";
 import { LiveSocket } from "../api/liveSocket";
 import type {
   AgentView,
@@ -52,8 +53,25 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const socketRef = useRef<LiveSocket | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadAgents = () => {
+      api
+        .agents()
+        .then((list) => {
+          if (cancelled) return;
+          setAgents(list ?? []);
+        })
+        .catch(() => {});
+    };
+    loadAgents();
+    const poll = window.setInterval(loadAgents, 4000);
+
     const sock = new LiveSocket();
     socketRef.current = sock;
+
+    const unsubConn = sock.onConnection((up) => {
+      if (!cancelled) setConnected(up);
+    });
 
     const unsub = sock.subscribe((msg: UIMessage) => {
       switch (msg.type) {
@@ -95,7 +113,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
 
     sock.start();
     return () => {
+      cancelled = true;
+      window.clearInterval(poll);
       unsub();
+      unsubConn();
       sock.stop();
     };
   }, []);
