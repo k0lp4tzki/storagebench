@@ -62,6 +62,20 @@ for (let e = 0; e <= 9; e++) {
 }
 const X_INCRS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
 
+function yMaxOf(cols: (number | null)[][]): number {
+  let m = 0;
+  for (const col of cols) {
+    for (const v of col) {
+      if (typeof v === "number" && Number.isFinite(v) && v > m) m = v;
+    }
+  }
+  return m;
+}
+
+function yRange(max: number): [number, number] {
+  return [0, max > 0 ? max * 1.12 : 10];
+}
+
 function fmtSeconds(v: number): string {
   if (v < 120) return `${v}s`;
   const m = Math.floor(v / 60);
@@ -106,6 +120,11 @@ export function Chart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [theme, series.map((s) => s.color).join("|")],
   );
+  // Keep the latest y-max in a ref so uPlot's range hook sees current values
+  // even when the plot instance was created while samples were still 0.
+  const yMax = yMaxOf(alignedData);
+  const yMaxRef = useRef(yMax);
+  yMaxRef.current = yMax;
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -127,7 +146,7 @@ export function Chart({
       scales: {
         x: { time: false },
         y: {
-          range: (_u, _min, max) => [0, max > 0 ? max * 1.12 : 10],
+          range: () => yRange(yMaxRef.current),
         },
       },
       axes: [
@@ -205,14 +224,18 @@ export function Chart({
       plot.destroy();
       plotRef.current = null;
     };
-    // Recreate when the data first appears (hasData) so the y-scale fits real
-    // values instead of staying on the empty-data fallback range.
+    // Recreate when x appears *or* when y first becomes non-zero. A plot built
+    // during fio prealloc (x>0, y=0) otherwise keeps the empty-data range
+    // [0,10] until something else (e.g. theme toggle) rebuilds it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|"), x.length > 0]);
+  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|"), x.length > 0, yMax > 0]);
 
   useEffect(() => {
-    // resetScales=true so the y-range recomputes as new samples arrive.
-    plotRef.current?.setData([x, ...alignedData], true);
+    const plot = plotRef.current;
+    if (!plot) return;
+    plot.setData([x, ...alignedData], true);
+    const [min, max] = yRange(yMaxOf(alignedData));
+    plot.setScale("y", { min, max });
   }, [x, alignedData]);
 
   // Redraw when markers change (the draw hook reads them from the ref).
