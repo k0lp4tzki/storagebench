@@ -83,6 +83,15 @@ function fmtSeconds(v: number): string {
   return s ? `${m}:${String(s).padStart(2, "0")}` : `${m}m`;
 }
 
+function paint(plot: uPlot, x: number[], cols: (number | null)[][]): void {
+  plot.setData([x, ...cols], true);
+  const [min, max] = yRange(yMaxOf(cols));
+  plot.setScale("y", { min, max });
+  // setScale updates axes but not series paths; toggling the theme used to
+  // "fix" that by destroying the plot. Rebuild paths in place instead.
+  plot.redraw(true, false);
+}
+
 // Chart: theme-aware uPlot time series with a compact header legend that shows
 // the latest values, or the hovered values while the cursor is over the plot.
 export function Chart({
@@ -120,11 +129,12 @@ export function Chart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [theme, series.map((s) => s.color).join("|")],
   );
-  // Keep the latest y-max in a ref so uPlot's range hook sees current values
-  // even when the plot instance was created while samples were still 0.
-  const yMax = yMaxOf(alignedData);
-  const yMaxRef = useRef(yMax);
-  yMaxRef.current = yMax;
+  const yMaxRef = useRef(0);
+  yMaxRef.current = yMaxOf(alignedData);
+  const xRef = useRef(x);
+  const dataRef = useRef(alignedData);
+  xRef.current = x;
+  dataRef.current = alignedData;
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -132,9 +142,11 @@ export function Chart({
     const grid = cssVar("--border") || "#2a2f37";
     const text = cssVar("--text-faint") || "#7b838f";
     const font = "11px ui-monospace, Menlo, Consolas, monospace";
+    let plot: uPlot | null = null;
+    let dead = false;
 
-    const opts: uPlot.Options = {
-      width: wrap.clientWidth || 600,
+    const optsFor = (width: number): uPlot.Options => ({
+      width,
       height,
       padding: [8, 8, 0, 0],
       legend: { show: false },
@@ -211,31 +223,38 @@ export function Chart({
           },
         ],
       },
+    });
+
+    const ensure = () => {
+      if (dead) return;
+      const w = wrap.clientWidth;
+      if (w < 32) return;
+      if (!plot) {
+        plot = new uPlot(optsFor(w), [xRef.current, ...dataRef.current], wrap);
+        plotRef.current = plot;
+        paint(plot, xRef.current, dataRef.current);
+        return;
+      }
+      plot.setSize({ width: w, height });
+      plot.redraw(true, false);
     };
 
-    const plot = new uPlot(opts, [x, ...alignedData], wrap);
-    plotRef.current = plot;
-    const ro = new ResizeObserver(() => {
-      plot.setSize({ width: wrap.clientWidth || 600, height });
-    });
+    const ro = new ResizeObserver(ensure);
     ro.observe(wrap);
+    ensure();
     return () => {
+      dead = true;
       ro.disconnect();
-      plot.destroy();
+      plot?.destroy();
       plotRef.current = null;
     };
-    // Recreate when x appears *or* when y first becomes non-zero. A plot built
-    // during fio prealloc (x>0, y=0) otherwise keeps the empty-data range
-    // [0,10] until something else (e.g. theme toggle) rebuilds it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|"), x.length > 0, yMax > 0]);
+  }, [theme, height, fill, colors.join("|"), series.map((s) => s.label).join("|"), fmt]);
 
   useEffect(() => {
     const plot = plotRef.current;
     if (!plot) return;
-    plot.setData([x, ...alignedData], true);
-    const [min, max] = yRange(yMaxOf(alignedData));
-    plot.setScale("y", { min, max });
+    paint(plot, x, alignedData);
   }, [x, alignedData]);
 
   // Redraw when markers change (the draw hook reads them from the ref).
